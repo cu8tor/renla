@@ -124,7 +124,7 @@ function payeAnnual(taxable, bands) {
   return Math.max(0, Math.round(tax));
 }
 
-/* Follows the uploaded CURA payslip template line for line */
+/* Follows the uploaded payslip template line for line */
 function computePayslip(emp, payroll, extras = {}) {
   const p = { ...emptyPay(), ...(emp.pay || {}) };
   const earnings = {

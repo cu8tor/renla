@@ -1,4 +1,4 @@
-const DEVICE_KEY = "cura:device:v1";
+const DEVICE_KEY = "renla:device:v1";
 function getLocalDevice() {
   try {
     const raw = window.localStorage.getItem(DEVICE_KEY);

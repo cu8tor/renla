@@ -1,11 +1,11 @@
 /* =====================================================================
    payrollEngine.test.js
 
-   These tests validate the same claims the "Cura People — What We've
-   Built" blueprint made by hand ("PAYE reproduces the uploaded template
-   exactly", "all six band boundaries correct", "a repayment must never
-   push pay below zero"), but against fully-controlled synthetic inputs
-   rather than the blueprint's original (undisclosed) employee record —
+   These tests validate the same claims the product blueprint made by
+   hand ("PAYE reproduces the uploaded template exactly", "all six band
+   boundaries correct", "a repayment must never push pay below zero"),
+   but against fully-controlled synthetic inputs rather than the
+   blueprint's original (undisclosed) employee record —
    so every expected number below is hand-verified from the NTA 2025
    bands and the formulas in computePayslip itself, not copied from the
    blueprint. If you want the *exact* ₦155,000 → ₦11,500 → ₦143,500
