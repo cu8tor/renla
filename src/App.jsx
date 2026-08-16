@@ -11,7 +11,7 @@ import {
   CalendarRange, Wallet, BarChart3, Search, Sun, Moon, Plus, Check, X,
   ChevronRight, LogOut, Cake, Briefcase, Building2, Phone, Mail, MapPin,
   ShieldCheck, Download, Pin, Heart, FileText, ArrowRight, Menu,
-  PartyPopper, Users2, Lock, Landmark, CreditCard, BadgeCheck, Sparkles,
+  PartyPopper, Users2, Lock, Landmark, CreditCard, BadgeCheck,
   Settings as SettingsIcon, Trash2, Pencil, KeyRound, Database, AlertCircle,
   UserPlus, Link2, Info, Play, Square, Timer, ChevronLeft, Copy, AlertTriangle,
   Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, CheckCircle2, XCircle, Eye,
@@ -46,6 +46,7 @@ import { Avatar, Card, Btn } from "./components/ui.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { StyleTag } from "./components/StyleTag.jsx";
 import { NotConfigured, AuthScreen, NewCompany } from "./pages/AuthPages.jsx";
+import renlaLogoWhite from "./assets/renla-logo-white.png";
 import { DashboardPage } from "./pages/DashboardPage.jsx";
 import { EmployeesPage } from "./pages/EmployeesPage.jsx";
 import { LeavePage } from "./pages/LeavePage.jsx";
@@ -692,7 +693,7 @@ function AppShell() {
         {navOpen && <div className="cp-scrim" onClick={() => setNavOpen(false)} />}
         <aside className={"cp-sidebar" + (navOpen ? " open" : "")}>
           <div className="cp-brand">
-            <div className="cp-brand-mark"><Sparkles size={15} /></div>
+            <div className="cp-brand-mark"><img src={renlaLogoWhite} alt="" width={16} height={18} style={{ display: "block" }} /></div>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15.5, letterSpacing: "-0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{db.company.name}</div>
               <div style={{ fontSize: 10.5, color: "var(--sidebar-muted)" }}>Renla</div>

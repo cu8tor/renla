@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Sun, Moon, Check, ArrowRight, Sparkles, AlertCircle, Timer } from "lucide-react";
+import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer } from "lucide-react";
 import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany } from "../lib/supabase.js";
 import { Card, Btn, Field, Dot } from "../components/ui.jsx";
 import { StyleTag } from "../components/StyleTag.jsx";
+import renlaLogoWhite from "../assets/renla-logo-white.png";
 
 function NotConfigured({ theme }) {
   return (
@@ -10,7 +11,7 @@ function NotConfigured({ theme }) {
       <StyleTag />
       <Card style={{ maxWidth: 460 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
-          <div className="cp-login-mark"><Sparkles size={16} /></div>
+          <div className="cp-login-mark"><img src={renlaLogoWhite} alt="" width={17} height={19} style={{ display: "block" }} /></div>
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18 }}>Renla</span>
         </div>
         <h3 style={{ fontFamily: "var(--font-display)", fontSize: 17, margin: "0 0 10px" }}>Almost there — add your Supabase keys</h3>
@@ -38,7 +39,7 @@ function AuthShell({ theme, dark, setDark, children, badge, title, blurb }) {
       <StyleTag />
       <div className="cp-login">
         <div className="cp-login-brand">
-          <div className="cp-login-mark"><Sparkles size={16} /></div>
+          <div className="cp-login-mark"><img src={renlaLogoWhite} alt="" width={17} height={19} style={{ display: "block" }} /></div>
           <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19, letterSpacing: "-0.02em" }}>Renla</span>
         </div>
         <button className="cp-theme-toggle-login" onClick={() => setDark(!dark)}>

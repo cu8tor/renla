@@ -87,3 +87,14 @@ Drop the entire `src/` folder (all of `App.jsx`, `src/lib`, `src/features`, `src
 ## What's next in V1
 
 Payroll, attendance, leave, the Renla rename, the page-component split, and URL routing are all done — **V1 is complete.** The roadmap moves to V1.5 hardening next (pagination/date-windowing for `loadWorkspace`, real selfie storage deletion, server-side IP capture) — not started, pending direction.
+
+## Real logo + favicon (post-V1 polish)
+
+The app previously used a generic `Sparkles` icon (from `lucide-react`) as a stand-in brand mark, and had no favicon at all. Both are now the real Renla logo:
+
+- **`src/assets/renla-logo-white.png`, `src/assets/renla-logo-green.png`** — the two logo files as supplied (white-on-transparent for dark backgrounds, green-on-transparent for light ones). Only the white version is currently used in the app, because both places the mark appears (`.cp-brand-mark` in the sidebar, `.cp-login-mark` on the auth screens) already render on a solid brand-green square — same idiom as the old sparkles icon, just the real mark instead.
+- **`src/App.jsx`, `src/pages/AuthPages.jsx`** — the `<Sparkles size={..} />` icon in the sidebar brand and both login-page brand marks (`NotConfigured` and `AuthShell`) replaced with `<img src={renlaLogoWhite} .../>`. The unused `Sparkles` import was removed from both files.
+- **`public/favicon-16.png`, `favicon-32.png`, `apple-touch-icon.png`, `favicon-512.png`** — generated from the source logo (padded to a square canvas, transparent background preserved) at the standard sizes. `index.html` now links the 16/32px favicons and the Apple touch icon, and the page title was updated to `Renla — Attendance, payroll and leave`.
+- **`preview/build-artifact.mjs`** — this is review tooling only (not part of the real app), but it needed a one-line fix to keep working: it esbuild-bundles `App.jsx` directly, and had no loader configured for `.png` imports, so it would have failed to build once `App.jsx` started importing the logo file. Added `".png": "dataurl"` to the esbuild loader map so image imports inline as base64 in the single-file preview, same as everything else in that artifact.
+
+No changes to `theme.js` or `StyleTag.jsx` — the app's color tokens, fonts (Bricolage Grotesque / Hanken Grotesk / JetBrains Mono) and card/pill/button styling were already the source the renla.app landing page was built to match, so the two were already visually consistent. The logo was the one real gap, and it's now wired into both places the brand mark appears, plus the browser tab/bookmark icon.
