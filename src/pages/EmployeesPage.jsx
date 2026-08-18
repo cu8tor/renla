@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Users, Wallet, Search, Plus, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert } from "lucide-react";
 import { emptyPay } from "../features/payroll/payrollEngine.js";
-import { CHECK_KEYS, hasOverrides } from "../features/attendance/attendanceLogic.js";
+import { CHECK_KEYS, hasOverrides, DAYS } from "../features/attendance/attendanceLogic.js";
 import { naira, grossOf, fmtShort } from "../lib/format.js";
 import { emptyEmployee } from "../lib/payrollHelpers.js";
 import { Avatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
@@ -94,11 +94,20 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
 function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
   const companyWork = db.work || {};
   const [f, setF] = useState({ ...emp, checkPrefs: emp.checkPrefs || {} });
+  // "pattern" = one shift for every day (the old behaviour, via shiftId above);
+  // "perDay" = this person's own Mon–Sun hours, some days possibly off.
+  const [schedMode, setSchedMode] = useState(emp.weekSchedule ? "perDay" : "pattern");
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const setBal = (k, v) => setF((x) => ({ ...x, bal: { ...x.bal, [k]: Number(v) || 0 } }));
   const setPay = (k, v) => setF((x) => ({ ...x, pay: { ...emptyPay(), ...(x.pay || {}), [k]: Number(String(v).replace(/[^0-9]/g, "")) || 0 } }));
+  const setDaySched = (day, patch) => setF((x) => ({
+    ...x,
+    weekSchedule: { ...(x.weekSchedule || {}), [day]: { ...(x.weekSchedule?.[day] || {}), ...patch } },
+  }));
   return (
-    <Modal wide title={isNew ? "Add employee" : `Edit ${emp.name || "employee"}`} onClose={onCancel} onSubmit={() => onSave(f)} submitLabel={isNew ? "Add employee" : "Save changes"}>
+    <Modal wide title={isNew ? "Add employee" : `Edit ${emp.name || "employee"}`} onClose={onCancel}
+      onSubmit={() => onSave(schedMode === "perDay" ? f : { ...f, weekSchedule: null })}
+      submitLabel={isNew ? "Add employee" : "Save changes"}>
       <FormGroup title="Personal">
         <div className="cp-form-grid">
           <Field label="Full name"><input className="cp-input" value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Bola Ade" /></Field>
@@ -141,16 +150,56 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
               {(db.branches || []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
-          <Field label="Shift pattern" hint="Drives lateness and overtime for this person">
-            <select className="cp-input" value={f.shiftId || ""} onChange={(e) => set("shiftId", e.target.value)}>
-              <option value="">Company working day ({db.work?.dayStart}–{db.work?.dayEnd})</option>
-              {(db.work?.shifts || []).map((sh) => <option key={sh.id} value={sh.id}>{sh.name} ({sh.start}–{sh.end})</option>)}
-            </select>
-          </Field>
           <Field label="Contract ends" hint="Leave blank for permanent staff">
             <input type="date" className="cp-input" value={f.contractEnd || ""} onChange={(e) => set("contractEnd", e.target.value)} />
           </Field>
         </div>
+      </FormGroup>
+
+      <FormGroup title="Working hours" note="Drives lateness and overtime for this person.">
+        <div className="cp-tabs" style={{ marginBottom: 14 }}>
+          <button type="button" className={"cp-tab" + (schedMode === "pattern" ? " active" : "")} onClick={() => setSchedMode("pattern")}>One shift, every day</button>
+          <button type="button" className={"cp-tab" + (schedMode === "perDay" ? " active" : "")} onClick={() => setSchedMode("perDay")}>Set hours per day</button>
+        </div>
+
+        {schedMode === "pattern" ? (
+          <div className="cp-form-grid">
+            <Field label="Shift pattern">
+              <select className="cp-input" value={f.shiftId || ""} onChange={(e) => set("shiftId", e.target.value)}>
+                <option value="">Company working day ({db.work?.dayStart}–{db.work?.dayEnd})</option>
+                {(db.work?.shifts || []).map((sh) => <option key={sh.id} value={sh.id}>{sh.name} ({sh.start}–{sh.end})</option>)}
+              </select>
+            </Field>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {DAYS.map((day) => {
+              const d = (f.weekSchedule && f.weekSchedule[day]) || {};
+              const off = Boolean(d.off);
+              return (
+                <div key={day} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 9 }}>
+                  <div style={{ width: 40, fontSize: 12.5, fontWeight: 700, color: "var(--muted)" }}>{day}</div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={off} onChange={(e) => setDaySched(day, { off: e.target.checked })} />
+                    Day off
+                  </label>
+                  {!off && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                      <input type="time" className="cp-input" style={{ width: 120 }}
+                        value={d.start || ""} onChange={(e) => setDaySched(day, { start: e.target.value })} />
+                      <span style={{ color: "var(--muted)", fontSize: 12.5 }}>to</span>
+                      <input type="time" className="cp-input" style={{ width: 120 }}
+                        value={d.end || ""} onChange={(e) => setDaySched(day, { end: e.target.value })} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 2 }}>
+              Leave a day's times blank to fall back to this person's shift pattern (or the company default) for that day only.
+            </div>
+          </div>
+        )}
       </FormGroup>
 
       <FormGroup title="Pay & statutory" note="Only HR Admins can see these fields.">

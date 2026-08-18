@@ -45,7 +45,7 @@ import { monthLabel, normalizeDb } from "./lib/payrollHelpers.js";
 import { Avatar, Card, Btn } from "./components/ui.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { StyleTag } from "./components/StyleTag.jsx";
-import { NotConfigured, AuthScreen, NewCompany } from "./pages/AuthPages.jsx";
+import { NotConfigured, AuthScreen, NewCompany, ResetPasswordScreen } from "./pages/AuthPages.jsx";
 import renlaLogoWhite from "./assets/renla-logo-white.png";
 import { DashboardPage } from "./pages/DashboardPage.jsx";
 import { EmployeesPage } from "./pages/EmployeesPage.jsx";
@@ -91,6 +91,7 @@ function AppShell() {
   const [localDevice, setLocalDevice] = useState(null);
   const [profile, setProfile] = useState(null);      // signed-in user + role
   const [authReady, setAuthReady] = useState(false);
+  const [recovery, setRecovery] = useState(false);   // came in via a password-reset link
   const [loadError, setLoadError] = useState("");
   const dbRef = useRef(null);
   const syncing = useRef(false);
@@ -133,7 +134,14 @@ function AppShell() {
     };
 
     refresh();
-    const off = onAuthChange(() => { setBooted(false); refresh(); });
+    const off = onAuthChange((_session, event) => {
+      // A password-reset link lands here as a real sign-in (Supabase opens a
+      // session for it), so without this check the person would land straight
+      // in the dashboard instead of being asked to choose a new password.
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      setBooted(false);
+      refresh();
+    });
     return () => { alive = false; off(); };
   }, []);
 
@@ -205,6 +213,8 @@ function AppShell() {
       </div>
     );
   }
+
+  if (recovery) return <ResetPasswordScreen theme={theme} dark={dark} setDark={setDark} onDone={() => setRecovery(false)} />;
 
   if (!profile) return <AuthScreen theme={theme} dark={dark} setDark={setDark} />;
   if (profile.noCompany) return <NewCompany theme={theme} dark={dark} setDark={setDark} profile={profile} />;
@@ -529,14 +539,20 @@ function AppShell() {
     const loan = d.loans.find((l) => l.empId === emp.id && l.status === "active");
     const loanDue = loan ? Math.min(loan.monthly, loan.amount - loan.repaid) : 0;
     const excused = excusedLateDatesFor(d.permissions || [], emp.id, monthPrefix);
+    // Dateless shift — used only for the workMinutesPerDay average below, since
+    // that needs one representative shift length rather than a per-day one.
+    // Lateness/overtime per record uses the day-specific shift (below), so an
+    // employee with a per-day weekSchedule is measured against each day's own
+    // hours instead of one shift applied to every day.
     const shift = shiftFor(d.work, emp);
     const empWork = effectiveWork(d.work, emp);
     let lateMinutes = 0, lateDays = 0, excusedLateDays = 0, otMins = 0;
     att.forEach((a) => {
       if (excused.includes(a.date)) { excusedLateDays += 1; return; }
-      const l = lateMinutesAgainst(shift.start, a.clockIn, empWork.graceMins);
+      const dayShift = shiftFor(d.work, emp, a.date);
+      const l = lateMinutesAgainst(dayShift.start, a.clockIn, empWork.graceMins);
       if (l > 0) { lateMinutes += l; lateDays += 1; }
-      otMins += overtimeMinutes(shift, a.clockIn, a.clockOut);
+      otMins += overtimeMinutes(dayShift, a.clockIn, a.clockOut);
     });
     const outMins = personalOutMinutes(d.permissions || [], emp.id, monthPrefix);
     // A day spent partly out of the office on approved business still counts

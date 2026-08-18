@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer } from "lucide-react";
-import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany } from "../lib/supabase.js";
+import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany, requestPasswordReset, updatePassword } from "../lib/supabase.js";
 import { Card, Btn, Field, Dot } from "../components/ui.jsx";
 import { StyleTag } from "../components/StyleTag.jsx";
 import renlaLogoWhite from "../assets/renla-logo-white.png";
@@ -62,6 +62,7 @@ function AuthScreen({ theme, dark, setDark }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [sent, setSent] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   const go = async () => {
     setErr(""); setBusy(true);
@@ -76,11 +77,47 @@ function AuthScreen({ theme, dark, setDark }) {
     setBusy(false);
   };
 
+  const sendReset = async () => {
+    if (!f.email.trim()) { setErr("Enter the email you sign in with first."); return; }
+    setErr(""); setBusy(true);
+    try { await requestPasswordReset(f.email); setResetSent(true); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
   if (sent) {
     return (
       <AuthShell theme={theme} dark={dark} setDark={setDark} badge="Check your inbox"
         title="Confirm your email" blurb={`We've sent a link to ${f.email}. Open it, then come back and sign in.`}>
         <div style={{ marginTop: 20 }}><Btn variant="ghost" onClick={() => { setSent(false); setMode("in"); }}>Back to sign in</Btn></div>
+      </AuthShell>
+    );
+  }
+
+  if (mode === "forgot") {
+    if (resetSent) {
+      return (
+        <AuthShell theme={theme} dark={dark} setDark={setDark} badge="Check your inbox"
+          title="Reset link sent" blurb={`We've sent a password reset link to ${f.email}. Open it on this device to choose a new password.`}>
+          <div style={{ marginTop: 20 }}><Btn variant="ghost" onClick={() => { setResetSent(false); setMode("in"); setErr(""); }}>Back to sign in</Btn></div>
+        </AuthShell>
+      );
+    }
+    return (
+      <AuthShell theme={theme} dark={dark} setDark={setDark} badge="Reset password"
+        title="Forgot your password?" blurb="Enter the email you sign in with and we'll send you a link to choose a new one.">
+        <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+          <Field label="Email">
+            <input className="cp-input" autoFocus type="email" autoComplete="email"
+              value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && sendReset()} />
+          </Field>
+          {err && <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "center" }}><AlertCircle size={14} /> {err}</div>}
+          <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={sendReset}>{busy ? "Sending…" : "Send reset link"}</Btn></div>
+        </div>
+        <div style={{ marginTop: 20, fontSize: 13, color: "var(--muted)" }}>
+          <button className="cp-link" onClick={() => { setMode("in"); setErr(""); }}>Back to sign in</button>
+        </div>
       </AuthShell>
     );
   }
@@ -102,6 +139,11 @@ function AuthScreen({ theme, dark, setDark }) {
             value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && go()} />
         </Field>
+        {mode === "in" && (
+          <div style={{ textAlign: "right", marginTop: -6 }}>
+            <button className="cp-link" style={{ fontSize: 12.5 }} onClick={() => { setMode("forgot"); setErr(""); }}>Forgot password?</button>
+          </div>
+        )}
         {err && <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "center" }}><AlertCircle size={14} /> {err}</div>}
         <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={go}>{busy ? "Just a moment…" : mode === "in" ? "Sign in" : "Create account"}</Btn></div>
       </div>
@@ -110,6 +152,57 @@ function AuthScreen({ theme, dark, setDark }) {
         <button className="cp-link" onClick={() => { setMode(mode === "in" ? "up" : "in"); setErr(""); }}>
           {mode === "in" ? "Create an account" : "Sign in"}
         </button>
+      </div>
+    </AuthShell>
+  );
+}
+
+/* ================================================================== */
+/*  RESET PASSWORD — reached after clicking the link from the reset    */
+/*  email. App.jsx shows this in place of the normal app whenever a    */
+/*  PASSWORD_RECOVERY auth event has fired, so it can't be skipped.    */
+/* ================================================================== */
+function ResetPasswordScreen({ theme, dark, setDark, onDone }) {
+  const [f, setF] = useState({ password: "", confirm: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(false);
+
+  const go = async () => {
+    setErr("");
+    if (f.password.length < 6) { setErr("Your password needs to be at least 6 characters."); return; }
+    if (f.password !== f.confirm) { setErr("Those passwords don't match."); return; }
+    setBusy(true);
+    try { await updatePassword(f.password); setDone(true); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  if (done) {
+    return (
+      <AuthShell theme={theme} dark={dark} setDark={setDark} badge="All set"
+        title="Password updated" blurb="You're signed in with your new password.">
+        <div style={{ marginTop: 20 }}><Btn icon={ArrowRight} onClick={onDone}>Continue to Renla</Btn></div>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell theme={theme} dark={dark} setDark={setDark} badge="Reset password"
+      title="Choose a new password" blurb="Pick something you haven't used before on this account.">
+      <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+        <Field label="New password">
+          <input className="cp-input" autoFocus type="password" autoComplete="new-password"
+            value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && go()} />
+        </Field>
+        <Field label="Confirm new password">
+          <input className="cp-input" type="password" autoComplete="new-password"
+            value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && go()} />
+        </Field>
+        {err && <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "center" }}><AlertCircle size={14} /> {err}</div>}
+        <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={go}>{busy ? "Saving…" : "Save new password"}</Btn></div>
       </div>
     </AuthShell>
   );
@@ -168,4 +261,4 @@ function NewCompany({ theme, dark, setDark, profile }) {
 }
 
 
-export { NotConfigured, AuthShell, AuthScreen, NewCompany };
+export { NotConfigured, AuthShell, AuthScreen, NewCompany, ResetPasswordScreen };

@@ -48,8 +48,37 @@ function minutesBetween(from, to) {
   if (a == null || b == null) return null;
   return b >= a ? b - a : (1440 - a) + b;
 }
-/* The shift someone is on. Falls back to the company's working day. */
-function shiftFor(work, emp) {
+/* Which day-of-week key (matching DAYS above) an ISO "YYYY-MM-DD" date falls
+   on, parsed as a local date (not UTC) so it can't drift a day depending on
+   the browser's timezone. */
+function dayKeyFor(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  if (isNaN(dt.getTime())) return null;
+  return DAYS[(dt.getDay() + 6) % 7]; // JS Sunday=0 → reindex so Monday=0, matching DAYS
+}
+/* The shift someone is on, for a given date (optional). Resolution order:
+   1. If the employee has a per-day weekly schedule and a date was given,
+      use that day's hours — or treat it as a day off if the day is marked
+      off, or fall through to (2)/(3) if that day was left unset.
+   2. Their assigned shift pattern (the old single-shift-for-every-day
+      behaviour), if they have one.
+   3. The company's default working day.
+   Calling this without a date (as existing code that doesn't have one yet
+   still does) skips straight to (2)/(3) — same behaviour as before this
+   per-day scheduling existed. */
+function shiftFor(work, emp, dateStr) {
+  const ws = emp && emp.weekSchedule;
+  if (ws && dateStr) {
+    const key = dayKeyFor(dateStr);
+    const day = key ? ws[key] : null;
+    if (day) {
+      if (day.off) return { id: "", name: "Day off", start: "", end: "", off: true };
+      if (day.start && day.end) return { id: "", name: key, start: day.start, end: day.end };
+    }
+  }
   const list = (work && work.shifts && work.shifts.length) ? work.shifts : DEFAULT_SHIFTS;
   const found = emp && emp.shiftId ? list.find((x) => x.id === emp.shiftId) : null;
   return found || { id: "", name: "Working day", start: (work && work.dayStart) || "09:00", end: (work && work.dayEnd) || "17:00" };
@@ -87,4 +116,4 @@ const anyoneHas = (work, employees, key) =>
   Boolean(work[key]) || (employees || []).some((e) => e.checkPrefs && e.checkPrefs[key] === true);
 const hasOverrides = (emp) => Boolean(emp && emp.checkPrefs && CHECK_KEYS.some((k) => typeof emp.checkPrefs[k] === "boolean"));
 
-export { DAYS, pad2, nowHM, hmToMin, minToHM, durLabel, addDays, mondayOf, shiftMins, DEFAULT_SHIFTS, crossesMidnight, minutesBetween, shiftFor, lateMinutesAgainst, overtimeMinutes, CHECK_KEYS, effectiveWork, anyoneHas, hasOverrides };
+export { DAYS, pad2, nowHM, hmToMin, minToHM, durLabel, addDays, mondayOf, shiftMins, DEFAULT_SHIFTS, crossesMidnight, minutesBetween, dayKeyFor, shiftFor, lateMinutesAgainst, overtimeMinutes, CHECK_KEYS, effectiveWork, anyoneHas, hasOverrides };

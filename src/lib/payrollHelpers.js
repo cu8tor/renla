@@ -39,6 +39,7 @@ function emptyEmployee() {
     dept: "", title: "", managerId: "", joined: todayISO(), contract: "Full-time", status: "Active",
     salary: 0, nin: "", bvn: "", tin: "", pension: "", bank: "", acctName: "", acct: "", pay: emptyPay(),
     kin: "", emergency: "", bal: blankBalances(), checkPrefs: {}, branchId: "", shiftId: "", contractEnd: "",
+    weekSchedule: null,
   };
 }
 function ytdFor(db, empId, upToMonth) {

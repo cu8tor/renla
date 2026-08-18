@@ -35,6 +35,27 @@ export async function signUp(email, password) {
 
 export const signOut = () => supabase.auth.signOut();
 
+/* Sends a password-reset email. The link it contains brings the person
+   back to this same app with a Supabase recovery session already active —
+   onAuthChange below fires a PASSWORD_RECOVERY event when that happens,
+   which App.jsx uses to show the "choose a new password" screen instead
+   of treating it as a normal sign-in.
+   NOTE: whatever origin this app is actually served from (e.g.
+   https://app.renla.app) must be added to Supabase → Authentication →
+   URL Configuration → Redirect URLs, or the email link will fail. */
+export async function requestPasswordReset(email) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo: window.location.origin,
+  });
+  if (error) throw new Error(friendly(error.message));
+}
+
+/* Sets a new password once a recovery session is active (see above). */
+export async function updatePassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw new Error(friendly(error.message));
+}
+
 export async function createCompany(companyName, fullName, jobTitle) {
   const { error } = await supabase.rpc("create_company_and_admin", {
     p_company_name: companyName,
@@ -55,7 +76,7 @@ export async function getSession() {
 }
 
 export function onAuthChange(cb) {
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => cb(session));
+  const { data } = supabase.auth.onAuthStateChange((event, session) => cb(session, event));
   return () => data.subscription.unsubscribe();
 }
 
@@ -149,6 +170,7 @@ export async function loadWorkspace(profile) {
         bal: r.balances || { annual: 20, sick: 10, comp: 5 },
         checkPrefs: r.check_prefs || {},
         branchId: r.branch_id || "", shiftId: r.shift_id || "", contractEnd: r.contract_end || "",
+        weekSchedule: r.week_schedule || null,
         nin: p?.nin || "", bvn: p?.bvn || "", tin: p?.tin || "",
         pension: p?.rsa_pin || "", bank: p?.bank || "",
         acctName: p?.account_name || "", acct: p?.account_number || "",

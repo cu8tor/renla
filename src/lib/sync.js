@@ -29,6 +29,7 @@ const employeeRow = (e, cid) => ({
   status: e.status || "Active", next_of_kin: e.kin || "",
   emergency: e.emergency || "", balances: e.bal || {}, check_prefs: e.checkPrefs || {},
   branch_id: e.branchId || null, shift_id: e.shiftId || "", contract_end: e.contractEnd || null,
+  week_schedule: e.weekSchedule || null,
 });
 
 const payRow = (e, cid) => ({

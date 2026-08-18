@@ -15,17 +15,23 @@ function monthInsights(db, employees, mKey) {
   const ids = employees.map((e) => e.id);
 
   const perPerson = employees.map((emp) => {
+    // Dateless shift — used only for the daily-rate/hourly-rate math below and
+    // as the display fallback, since those need one representative shift, not
+    // a per-day one. Actual lateness/overtime math uses the day-specific shift
+    // (below), so an employee with a per-day weekSchedule is still measured
+    // correctly against each day's own hours.
     const shift = shiftFor(work, emp);
     const w = effectiveWork(work, emp);
     const mine = att.filter((a) => a.empId === emp.id);
     const excused = excusedLateDatesFor(db.permissions || [], emp.id, mKey);
     let lateDays = 0, lateMins = 0, otMins = 0, workedMins = 0, noClockOut = 0;
     mine.forEach((a) => {
-      const l = excused.includes(a.date) ? 0 : lateMinutesAgainst(shift.start, a.clockIn, w.graceMins);
+      const dayShift = shiftFor(work, emp, a.date);
+      const l = excused.includes(a.date) ? 0 : lateMinutesAgainst(dayShift.start, a.clockIn, w.graceMins);
       if (l > 0) { lateDays += 1; lateMins += l; }
       if (a.clockOut) {
         workedMins += minutesBetween(a.clockIn, a.clockOut) || 0;
-        otMins += overtimeMinutes(shift, a.clockIn, a.clockOut);
+        otMins += overtimeMinutes(dayShift, a.clockIn, a.clockOut);
       } else noClockOut += 1;
     });
     const gross = grossOf(emp);
