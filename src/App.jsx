@@ -138,7 +138,14 @@ function AppShell() {
       // A password-reset link lands here as a real sign-in (Supabase opens a
       // session for it), so without this check the person would land straight
       // in the dashboard instead of being asked to choose a new password.
-      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      if (event === "PASSWORD_RECOVERY") { setRecovery(true); return; }
+      // Saving the new password (updateUser) fires its own USER_UPDATED event
+      // on this same listener. Nothing about the workspace changed, so don't
+      // force the "Opening Renla…" reload here — that would unmount
+      // ResetPasswordScreen mid-flow and wipe its "Password updated"
+      // confirmation, dropping the person straight back to a blank form as
+      // if nothing had happened.
+      if (event === "USER_UPDATED") return;
       setBooted(false);
       refresh();
     });
