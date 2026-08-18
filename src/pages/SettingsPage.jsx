@@ -3,7 +3,7 @@ import { Clock3, Plus, Check, X, Building2, MapPin, Download, PartyPopper, Badge
 import { supabase } from "../lib/supabase.js";
 import { DEFAULT_PAYROLL } from "../features/payroll/payrollEngine.js";
 import { durLabel, crossesMidnight, minutesBetween } from "../features/attendance/attendanceLogic.js";
-import { uid, fmtShort, fmtLong } from "../lib/format.js";
+import { uid, fmtShort, fmtLong, copyText } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
 import { DEFAULT_WORK } from "../lib/presence.js";
 import { Avatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
@@ -512,9 +512,10 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
                             </select>
                           )}
                         </>
-                      : <button className="cp-mini" onClick={() => {
-                          if (navigator.clipboard) navigator.clipboard.writeText(e.id);
-                          toast("Staff code copied — send it to " + e.name.split(" ")[0]);
+                      : <button className="cp-mini" onClick={async () => {
+                          const ok = await copyText(e.id);
+                          if (ok) toast("Staff code copied — send it to " + e.name.split(" ")[0]);
+                          else toast("Couldn't copy automatically — here's " + e.name.split(" ")[0] + "'s code: " + e.id, "danger", 9000);
                         }}><Copy size={13} /> Copy staff code</button>}
                   </div>
                 );
