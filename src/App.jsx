@@ -549,7 +549,7 @@ function AppShell() {
     let lateMinutes = 0, lateDays = 0, excusedLateDays = 0, otMins = 0;
     att.forEach((a) => {
       if (excused.includes(a.date)) { excusedLateDays += 1; return; }
-      const dayShift = shiftFor(d.work, emp, a.date);
+      const dayShift = shiftFor(d.work, emp, a.date, d.branches);
       const l = lateMinutesAgainst(dayShift.start, a.clockIn, empWork.graceMins);
       if (l > 0) { lateMinutes += l; lateDays += 1; }
       otMins += overtimeMinutes(dayShift, a.clockIn, a.clockOut);

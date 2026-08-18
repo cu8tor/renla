@@ -7,6 +7,7 @@ import { uid, fmtShort, fmtLong } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
 import { DEFAULT_WORK } from "../lib/presence.js";
 import { Avatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
 import { Payslip } from "./PayrollPage.jsx";
 
 function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload }) {
@@ -17,6 +18,7 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
   const [picking, setPicking] = useState(false);
   const [newCheckTime, setNewCheckTime] = useState("");
   const [branch, setBranch] = useState({ name: "", address: "" });
+  const [editingBranchHours, setEditingBranchHours] = useState("");
   const [newDept, setNewDept] = useState("");
   const [hol, setHol] = useState({ name: "", date: "" });
   const [confirmReset, setConfirmReset] = useState(false);
@@ -38,15 +40,34 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
         <Card>
           <Section title="Working hours">
             <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
-              Used to flag late clock-ins and to pre-fill new shifts on the rota.
+              Used to flag late clock-ins and to pre-fill new shifts on the rota — and, unless a branch or a person has their own hours instead, this is what everyone follows.
             </div>
-            <div className="cp-form-grid">
-              <Field label="Office opens" hint="Drives the late flag and lateness pay deduction"><input type="time" className="cp-input" value={work.dayStart} onChange={(e) => setWork({ ...work, dayStart: e.target.value })} /></Field>
-              <Field label="Office closes" hint="Sets the length of a working day"><input type="time" className="cp-input" value={work.dayEnd} onChange={(e) => setWork({ ...work, dayEnd: e.target.value })} /></Field>
-              <Field label="Grace period (minutes)" hint="How late someone can clock in before it's flagged">
-                <input className="cp-input" value={work.graceMins} onChange={(e) => setWork({ ...work, graceMins: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} />
-              </Field>
+            <div className="cp-tabs" style={{ marginBottom: 14 }}>
+              <button type="button" className={"cp-tab" + (!work.weekSchedule ? " active" : "")} onClick={() => setWork({ ...work, weekSchedule: null })}>Same hours every day</button>
+              <button type="button" className={"cp-tab" + (work.weekSchedule ? " active" : "")} onClick={() => setWork({ ...work, weekSchedule: work.weekSchedule || {} })}>Different hours per day</button>
             </div>
+            {!work.weekSchedule ? (
+              <div className="cp-form-grid">
+                <Field label="Office opens" hint="Drives the late flag and lateness pay deduction"><input type="time" className="cp-input" value={work.dayStart} onChange={(e) => setWork({ ...work, dayStart: e.target.value })} /></Field>
+                <Field label="Office closes" hint="Sets the length of a working day"><input type="time" className="cp-input" value={work.dayEnd} onChange={(e) => setWork({ ...work, dayEnd: e.target.value })} /></Field>
+                <Field label="Grace period (minutes)" hint="How late someone can clock in before it's flagged">
+                  <input className="cp-input" value={work.graceMins} onChange={(e) => setWork({ ...work, graceMins: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} />
+                </Field>
+              </div>
+            ) : (
+              <>
+                <WeekScheduleEditor schedule={work.weekSchedule}
+                  onChangeDay={(day, patch) => setWork({ ...work, weekSchedule: { ...work.weekSchedule, [day]: { ...(work.weekSchedule[day] || {}), ...patch } } })}
+                  note="Leave a day's times blank and it uses Office opens/closes below for that day instead." />
+                <div className="cp-form-grid" style={{ marginTop: 14 }}>
+                  <Field label="Office opens (fallback)" hint="Used for any day left blank above"><input type="time" className="cp-input" value={work.dayStart} onChange={(e) => setWork({ ...work, dayStart: e.target.value })} /></Field>
+                  <Field label="Office closes (fallback)" hint="Used for any day left blank above"><input type="time" className="cp-input" value={work.dayEnd} onChange={(e) => setWork({ ...work, dayEnd: e.target.value })} /></Field>
+                  <Field label="Grace period (minutes)" hint="How late someone can clock in before it's flagged">
+                    <input className="cp-input" value={work.graceMins} onChange={(e) => setWork({ ...work, graceMins: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} />
+                  </Field>
+                </div>
+              </>
+            )}
             <div style={{ marginTop: 14 }}>
               <Btn onClick={() => { update((d) => ({ ...d, work })); toast("Working hours saved"); }}>Save working hours</Btn>
             </div>
@@ -321,18 +342,29 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                 {db.branches.map((b) => {
                   const n = db.employees.filter((e) => e.branchId === b.id).length;
+                  const editing = editingBranchHours === b.id;
                   return (
-                    <div key={b.id} className="cp-leaverow">
-                      <Building2 size={16} style={{ color: "var(--brand)" }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600 }}>{b.name}</div>
-                        <div style={{ fontSize: 12, color: "var(--muted)" }}>{n} {n === 1 ? "person" : "people"}{b.address ? ` · ${b.address}` : ""}</div>
+                    <div key={b.id} style={{ border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden" }}>
+                      <div className="cp-leaverow" style={{ border: "none", borderRadius: 0 }}>
+                        <Building2 size={16} style={{ color: "var(--brand)" }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 600 }}>{b.name}</div>
+                          <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                            {n} {n === 1 ? "person" : "people"}{b.address ? ` · ${b.address}` : ""}
+                            {" · "}{b.useCompanySchedule === false ? "own hours" : "company hours"}
+                          </div>
+                        </div>
+                        <button className="cp-mini" onClick={() => setEditingBranchHours(editing ? "" : b.id)}><Clock3 size={13} /></button>
+                        <button className="cp-mini cp-mini-no" onClick={() => {
+                          update((d) => ({ ...d, branches: d.branches.filter((x) => x.id !== b.id),
+                            employees: d.employees.map((e) => (e.branchId === b.id ? { ...e, branchId: "" } : e)) }));
+                          toast("Branch removed", "danger");
+                        }}><Trash2 size={13} /></button>
                       </div>
-                      <button className="cp-mini cp-mini-no" onClick={() => {
-                        update((d) => ({ ...d, branches: d.branches.filter((x) => x.id !== b.id),
-                          employees: d.employees.map((e) => (e.branchId === b.id ? { ...e, branchId: "" } : e)) }));
-                        toast("Branch removed", "danger");
-                      }}><Trash2 size={13} /></button>
+                      {editing && (
+                        <BranchHoursEditor branch={b} onClose={() => setEditingBranchHours("")}
+                          onSave={(patch) => { update((d) => ({ ...d, branches: d.branches.map((x) => (x.id === b.id ? { ...x, ...patch } : x)) })); toast("Branch hours saved"); setEditingBranchHours(""); }} />
+                      )}
                     </div>
                   );
                 })}
@@ -520,5 +552,29 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
   );
 }
 
+/* Inline editor for one branch's hours — either "follow the company" (the
+   default) or its own Mon–Sun schedule, e.g. a branch that opens later than
+   head office. Anyone on "Branch hours" in their own profile picks this up. */
+function BranchHoursEditor({ branch, onSave, onClose }) {
+  const [useOwn, setUseOwn] = useState(branch.useCompanySchedule === false);
+  const [schedule, setSchedule] = useState(branch.weekSchedule || {});
+  return (
+    <div style={{ padding: 14, borderTop: "1px solid var(--line)", background: "var(--card2)" }}>
+      <div className="cp-tabs" style={{ marginBottom: 14 }}>
+        <button type="button" className={"cp-tab" + (!useOwn ? " active" : "")} onClick={() => setUseOwn(false)}>Use company hours</button>
+        <button type="button" className={"cp-tab" + (useOwn ? " active" : "")} onClick={() => setUseOwn(true)}>Set hours for this branch</button>
+      </div>
+      {useOwn && (
+        <WeekScheduleEditor schedule={schedule}
+          onChangeDay={(day, patch) => setSchedule((s) => ({ ...s, [day]: { ...(s[day] || {}), ...patch } }))}
+          note="Leave a day's times blank and this branch falls back to the company's hours for that day only." />
+      )}
+      <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={() => onSave({ useCompanySchedule: !useOwn, weekSchedule: useOwn ? schedule : null })}>Save hours</Btn>
+      </div>
+    </div>
+  );
+}
 
 export { SettingsPage };

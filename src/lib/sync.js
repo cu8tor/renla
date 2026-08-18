@@ -29,7 +29,7 @@ const employeeRow = (e, cid) => ({
   status: e.status || "Active", next_of_kin: e.kin || "",
   emergency: e.emergency || "", balances: e.bal || {}, check_prefs: e.checkPrefs || {},
   branch_id: e.branchId || null, shift_id: e.shiftId || "", contract_end: e.contractEnd || null,
-  week_schedule: e.weekSchedule || null,
+  week_schedule: e.weekSchedule || null, schedule_mode: e.scheduleMode || "pattern",
 });
 
 const payRow = (e, cid) => ({
@@ -67,7 +67,11 @@ const MAP = {
   },
   branches: {
     table: "branches",
-    row: (b, cid) => ({ id: b.id, company_id: cid, name: b.name, address: b.address || "" }),
+    row: (b, cid) => ({
+      id: b.id, company_id: cid, name: b.name, address: b.address || "",
+      week_schedule: b.weekSchedule || null,
+      use_company_schedule: b.useCompanySchedule !== false,
+    }),
   },
   permissions: {
     table: "permissions",

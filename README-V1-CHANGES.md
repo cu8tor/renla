@@ -121,3 +121,29 @@ Previously an employee had exactly one shift pattern (`shiftId`), applied to eve
 - **`catch-up-migration-2.sql`** (new file) — adds the `week_schedule jsonb` column to `employees`. Safe to run whether or not `catch-up-migration.sql` has already been run; only adds the column if it isn't already there.
 
 Verified with the full test suite (`npm test` — still 41/41 passing, `attendanceLogic.test.js`'s existing `shiftFor` assertions unaffected since they don't pass a date), a real `npm run build`, and a rendered preview of the Employees edit form with a sample employee given a per-day schedule (weekdays 9–5, a short Saturday, Sunday off) — the tab defaults to "One shift, every day" for anyone without a `weekSchedule`, and switches to "Set hours per day" with the right values pre-filled for someone who has one.
+
+## Working hours, take two — company → branch → employee hierarchy
+
+The first version of per-day hours above only worked one employee at a time, which doesn't fit a common real case: most of a company (or a whole branch) shares the exact same pattern — e.g. Mon–Fri 9am–5pm, Saturday 10am–4pm, Sunday off — and re-typing that per person doesn't scale. This adds three levels, each one optional to override:
+
+1. **Company** (`Settings → Working hours`) — can now be either the original single "office opens/closes" time, or its own Mon–Sun schedule (the `Different hours per day` tab). Any day left blank in the per-day view falls back to the office opens/closes fields.
+2. **Branch** (`Settings → Branches`, new clock icon on each branch row) — each branch can follow the company's hours (the default) or have its own Mon–Sun schedule, same editor.
+3. **Employee** (`Employees → edit → Working hours`) — now four tabs instead of two:
+   - **Standard hours** — follows the company's working hours directly, ignoring branch. Right for most full-time/part-time staff.
+   - **Branch hours** — follows whichever branch they're assigned to (which itself is either following the company or has its own hours). Right for staff whose hours are set at branch level.
+   - **Custom hours** — their own individual per-day schedule, unchanged from the first version above. Right for the genuine one-off exception.
+   - **Shift pattern** — the original single start/end applied every day, via the shift-pattern dropdown. Right for shift workers, night workers, and contract staff where "which day" doesn't matter, only "which shift."
+
+So a company that's Mon–Fri 9–5 + Sat 10–4 for almost everyone sets that once at the company level, and every employee on "Standard hours" (the natural default for most staff) just follows it — nothing to fill in per person. Someone on nights still uses "Shift pattern" with a Night shift pattern, unaffected by any of this.
+
+- **`src/features/attendance/attendanceLogic.js`** — `shiftFor(work, emp, dateStr, branches)` gained a fourth argument and now resolves through `emp.scheduleMode` ("standard" | "branch" | "custom" | "pattern", defaulting to "custom" if the employee already has a `weekSchedule` from before this existed, else "pattern" — so nobody's hours silently change from this update). Extracted `resolveWeekDay`/`dayOffShift`/`dayShift`/`patternShift` as small internal helpers so the four modes share the same day-lookup logic instead of duplicating it. 11 new unit tests cover every mode and every fallback (`attendanceLogic.test.js`).
+- **`src/components/WeekScheduleEditor.jsx`** (new file) — the Mon–Sun row editor, extracted out of the Employees form so the company, branch, and employee editors all use the exact same component instead of three copies that could drift apart.
+- **`src/pages/SettingsPage.jsx`** — "Working hours" section gained the same-every-day/different-per-day tabs; "Branches" section gained a clock-icon button per branch that opens an inline hours editor (use company hours, or set the branch's own).
+- **`src/pages/EmployeesPage.jsx`** — the Working hours section is now the four tabs described above instead of two.
+- **`src/lib/supabase.js`, `src/lib/sync.js`** — branches now read/write `weekSchedule`/`week_schedule` and `useCompanySchedule`/`use_company_schedule`; employees now read/write `scheduleMode`/`schedule_mode`.
+- **`src/lib/payrollHelpers.js`** — `emptyEmployee()` defaults new employees to `scheduleMode: "pattern"` (unchanged behaviour — same as every employee before this existed).
+- **`catch-up-migration-3.sql`** (new file) — adds `week_schedule` and `use_company_schedule` to `branches`, and `schedule_mode` to `employees`. Safe regardless of which earlier migrations have run.
+
+Verified: 52/52 tests passing (11 new), a real `npm run build`, and rendered previews of all three levels — the company's per-day editor, a branch's own-hours editor with a sample Mon–Fri 8–6 + Sat 9–2 + Sun-off pattern, and an employee's "Branch hours" tab correctly reporting which branch and whether it's following the company or not.
+
+**Deployment note:** run `catch-up-migration-3.sql` (in addition to `catch-up-migration-2.sql` if that one hasn't been run yet either) before uploading this version's code — it adds the new columns this depends on.

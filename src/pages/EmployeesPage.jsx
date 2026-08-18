@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Users, Wallet, Search, Plus, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert } from "lucide-react";
 import { emptyPay } from "../features/payroll/payrollEngine.js";
-import { CHECK_KEYS, hasOverrides, DAYS } from "../features/attendance/attendanceLogic.js";
+import { CHECK_KEYS, hasOverrides } from "../features/attendance/attendanceLogic.js";
 import { naira, grossOf, fmtShort } from "../lib/format.js";
 import { emptyEmployee } from "../lib/payrollHelpers.js";
 import { Avatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
 
 function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, empById, toast }) {
   const [editing, setEditing] = useState(null);
@@ -93,10 +94,14 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
 
 function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
   const companyWork = db.work || {};
-  const [f, setF] = useState({ ...emp, checkPrefs: emp.checkPrefs || {} });
-  // "pattern" = one shift for every day (the old behaviour, via shiftId above);
-  // "perDay" = this person's own Mon–Sun hours, some days possibly off.
-  const [schedMode, setSchedMode] = useState(emp.weekSchedule ? "perDay" : "pattern");
+  const [f, setF] = useState({
+    ...emp, checkPrefs: emp.checkPrefs || {},
+    // Back-compat: an employee saved before this feature existed has neither
+    // field set, which should behave exactly as "pattern" always did; one
+    // saved by the very first version of per-day hours has a weekSchedule
+    // but no scheduleMode yet, which should come back as "custom".
+    scheduleMode: emp.scheduleMode || (emp.weekSchedule ? "custom" : "pattern"),
+  });
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
   const setBal = (k, v) => setF((x) => ({ ...x, bal: { ...x.bal, [k]: Number(v) || 0 } }));
   const setPay = (k, v) => setF((x) => ({ ...x, pay: { ...emptyPay(), ...(x.pay || {}), [k]: Number(String(v).replace(/[^0-9]/g, "")) || 0 } }));
@@ -104,9 +109,10 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
     ...x,
     weekSchedule: { ...(x.weekSchedule || {}), [day]: { ...(x.weekSchedule?.[day] || {}), ...patch } },
   }));
+  const branch = f.branchId ? (db.branches || []).find((b) => b.id === f.branchId) : null;
   return (
     <Modal wide title={isNew ? "Add employee" : `Edit ${emp.name || "employee"}`} onClose={onCancel}
-      onSubmit={() => onSave(schedMode === "perDay" ? f : { ...f, weekSchedule: null })}
+      onSubmit={() => onSave({ ...f, weekSchedule: f.scheduleMode === "custom" ? (f.weekSchedule || null) : null })}
       submitLabel={isNew ? "Add employee" : "Save changes"}>
       <FormGroup title="Personal">
         <div className="cp-form-grid">
@@ -157,48 +163,43 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
       </FormGroup>
 
       <FormGroup title="Working hours" note="Drives lateness and overtime for this person.">
-        <div className="cp-tabs" style={{ marginBottom: 14 }}>
-          <button type="button" className={"cp-tab" + (schedMode === "pattern" ? " active" : "")} onClick={() => setSchedMode("pattern")}>One shift, every day</button>
-          <button type="button" className={"cp-tab" + (schedMode === "perDay" ? " active" : "")} onClick={() => setSchedMode("perDay")}>Set hours per day</button>
+        <div className="cp-tabs" style={{ marginBottom: 14, flexWrap: "wrap" }}>
+          <button type="button" className={"cp-tab" + (f.scheduleMode === "standard" ? " active" : "")} onClick={() => set("scheduleMode", "standard")}>Standard hours</button>
+          <button type="button" className={"cp-tab" + (f.scheduleMode === "branch" ? " active" : "")} onClick={() => set("scheduleMode", "branch")}>Branch hours</button>
+          <button type="button" className={"cp-tab" + (f.scheduleMode === "custom" ? " active" : "")} onClick={() => set("scheduleMode", "custom")}>Custom hours</button>
+          <button type="button" className={"cp-tab" + (f.scheduleMode === "pattern" ? " active" : "")} onClick={() => set("scheduleMode", "pattern")}>Shift pattern</button>
         </div>
 
-        {schedMode === "pattern" ? (
+        {f.scheduleMode === "standard" && (
+          <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 9, padding: "10px 13px" }}>
+            Follows the company's working hours exactly, set in <b>Settings → Working hours</b>
+            {db.work?.weekSchedule ? " (different hours are set for different days there)." : ` (currently ${db.work?.dayStart}–${db.work?.dayEnd} every working day).`}
+            {" "}Best for most full-time and part-time staff who all keep the same hours as the office.
+          </div>
+        )}
+
+        {f.scheduleMode === "branch" && (
+          <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 9, padding: "10px 13px" }}>
+            {branch
+              ? <>Follows <b>{branch.name}</b>'s hours, set in <b>Settings → Branches</b>{branch.useCompanySchedule === false ? " (this branch has its own hours)." : " (currently following the company's hours)."}</>
+              : <>No branch is assigned above, so this will just follow the company's working hours until one is. Pick a branch under <b>Job → Branch</b> to use its hours instead.</>}
+          </div>
+        )}
+
+        {f.scheduleMode === "pattern" && (
           <div className="cp-form-grid">
-            <Field label="Shift pattern">
+            <Field label="Shift pattern" hint="One start/end time, the same every working day — for shift workers, night workers, and contract staff">
               <select className="cp-input" value={f.shiftId || ""} onChange={(e) => set("shiftId", e.target.value)}>
                 <option value="">Company working day ({db.work?.dayStart}–{db.work?.dayEnd})</option>
                 {(db.work?.shifts || []).map((sh) => <option key={sh.id} value={sh.id}>{sh.name} ({sh.start}–{sh.end})</option>)}
               </select>
             </Field>
           </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {DAYS.map((day) => {
-              const d = (f.weekSchedule && f.weekSchedule[day]) || {};
-              const off = Boolean(d.off);
-              return (
-                <div key={day} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 9 }}>
-                  <div style={{ width: 40, fontSize: 12.5, fontWeight: 700, color: "var(--muted)" }}>{day}</div>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)", cursor: "pointer" }}>
-                    <input type="checkbox" checked={off} onChange={(e) => setDaySched(day, { off: e.target.checked })} />
-                    Day off
-                  </label>
-                  {!off && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
-                      <input type="time" className="cp-input" style={{ width: 120 }}
-                        value={d.start || ""} onChange={(e) => setDaySched(day, { start: e.target.value })} />
-                      <span style={{ color: "var(--muted)", fontSize: 12.5 }}>to</span>
-                      <input type="time" className="cp-input" style={{ width: 120 }}
-                        value={d.end || ""} onChange={(e) => setDaySched(day, { end: e.target.value })} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.5, marginTop: 2 }}>
-              Leave a day's times blank to fall back to this person's shift pattern (or the company default) for that day only.
-            </div>
-          </div>
+        )}
+
+        {f.scheduleMode === "custom" && (
+          <WeekScheduleEditor schedule={f.weekSchedule} onChangeDay={setDaySched}
+            note="Leave a day's times blank to fall back to this person's shift pattern (or the company default) for that day only." />
         )}
       </FormGroup>
 

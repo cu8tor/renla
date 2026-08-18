@@ -12,6 +12,7 @@ import { describe, it, expect } from "vitest";
 import {
   crossesMidnight,
   minutesBetween,
+  dayKeyFor,
   shiftFor,
   lateMinutesAgainst,
   overtimeMinutes,
@@ -85,6 +86,77 @@ describe("shiftFor", () => {
   it("falls back to the company's default working day when the employee has no shift", () => {
     const work = { dayStart: "08:30", dayEnd: "16:30" };
     expect(shiftFor(work, {})).toEqual({ id: "", name: "Working day", start: "08:30", end: "16:30" });
+  });
+});
+
+describe("dayKeyFor", () => {
+  it("maps an ISO date to the matching day-of-week key, Monday-indexed", () => {
+    expect(dayKeyFor("2024-01-01")).toBe("Mon"); // known Monday
+    expect(dayKeyFor("2024-01-06")).toBe("Sat"); // known Saturday
+    expect(dayKeyFor("2024-01-07")).toBe("Sun"); // known Sunday
+  });
+  it("returns null for a missing or unparseable date", () => {
+    expect(dayKeyFor("")).toBe(null);
+    expect(dayKeyFor(null)).toBe(null);
+  });
+});
+
+describe("shiftFor — scheduleMode resolution (per-day hours)", () => {
+  const work = {
+    dayStart: "09:00", dayEnd: "17:00",
+    shifts: [{ id: "night", name: "Night shift", start: "20:00", end: "04:00" }],
+  };
+
+  it("ignores every per-day source when no date is given — same as before this feature existed", () => {
+    const emp = { scheduleMode: "custom", weekSchedule: { Mon: { start: "10:00", end: "14:00" } } };
+    expect(shiftFor(work, emp)).toEqual({ id: "", name: "Working day", start: "09:00", end: "17:00" });
+  });
+
+  it("mode \"custom\": uses the employee's own per-day hours for that date", () => {
+    const emp = { scheduleMode: "custom", weekSchedule: { Mon: { start: "10:00", end: "14:00" }, Sat: { off: true } } };
+    expect(shiftFor(work, emp, "2024-01-01")).toEqual({ id: "", name: "Mon", start: "10:00", end: "14:00" });
+    expect(shiftFor(work, emp, "2024-01-06")).toEqual({ id: "", name: "Sat — day off", start: "", end: "", off: true });
+  });
+
+  it("mode \"custom\" falls back to the pattern for a day left unset", () => {
+    const emp = { scheduleMode: "custom", weekSchedule: { Mon: { start: "10:00", end: "14:00" } }, shiftId: "night" };
+    expect(shiftFor(work, emp, "2024-01-07")).toEqual({ id: "night", name: "Night shift", start: "20:00", end: "04:00" });
+  });
+
+  it("mode \"standard\" uses the company's day-varying default", () => {
+    const w = { ...work, weekSchedule: { Sat: { start: "10:00", end: "16:00" } } };
+    const emp = { scheduleMode: "standard" };
+    expect(shiftFor(w, emp, "2024-01-06")).toEqual({ id: "", name: "Sat", start: "10:00", end: "16:00" });
+    // Monday isn't set in the company's weekSchedule, so it falls back to dayStart/dayEnd.
+    expect(shiftFor(w, emp, "2024-01-01")).toEqual({ id: "", name: "Working day", start: "09:00", end: "17:00" });
+  });
+
+  it("mode \"branch\" follows the branch's own hours when it has opted out of the company schedule", () => {
+    const branches = [{ id: "br-1", useCompanySchedule: false, weekSchedule: { Sat: { start: "10:00", end: "16:00" } } }];
+    const emp = { scheduleMode: "branch", branchId: "br-1" };
+    expect(shiftFor(work, emp, "2024-01-06", branches)).toEqual({ id: "", name: "Sat", start: "10:00", end: "16:00" });
+  });
+
+  it("mode \"branch\" follows the company schedule when the branch hasn't opted out", () => {
+    const branches = [{ id: "br-1", useCompanySchedule: true }];
+    const w = { ...work, weekSchedule: { Sat: { start: "10:00", end: "16:00" } } };
+    const emp = { scheduleMode: "branch", branchId: "br-1" };
+    expect(shiftFor(w, emp, "2024-01-06", branches)).toEqual({ id: "", name: "Sat", start: "10:00", end: "16:00" });
+  });
+
+  it("mode \"branch\" falls back to the pattern when the employee has no branch assigned", () => {
+    const emp = { scheduleMode: "branch", shiftId: "night" };
+    expect(shiftFor(work, emp, "2024-01-06", [])).toEqual({ id: "night", name: "Night shift", start: "20:00", end: "04:00" });
+  });
+
+  it("defaults an employee with no scheduleMode but a weekSchedule to \"custom\" (back-compat)", () => {
+    const emp = { weekSchedule: { Mon: { start: "10:00", end: "14:00" } } };
+    expect(shiftFor(work, emp, "2024-01-01")).toEqual({ id: "", name: "Mon", start: "10:00", end: "14:00" });
+  });
+
+  it("defaults an employee with neither field to \"pattern\" (back-compat)", () => {
+    const emp = { shiftId: "night" };
+    expect(shiftFor(work, emp, "2024-01-01")).toEqual({ id: "night", name: "Night shift", start: "20:00", end: "04:00" });
   });
 });
 

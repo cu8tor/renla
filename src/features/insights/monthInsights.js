@@ -26,7 +26,7 @@ function monthInsights(db, employees, mKey) {
     const excused = excusedLateDatesFor(db.permissions || [], emp.id, mKey);
     let lateDays = 0, lateMins = 0, otMins = 0, workedMins = 0, noClockOut = 0;
     mine.forEach((a) => {
-      const dayShift = shiftFor(work, emp, a.date);
+      const dayShift = shiftFor(work, emp, a.date, db.branches);
       const l = excused.includes(a.date) ? 0 : lateMinutesAgainst(dayShift.start, a.clockIn, w.graceMins);
       if (l > 0) { lateDays += 1; lateMins += l; }
       if (a.clockOut) {

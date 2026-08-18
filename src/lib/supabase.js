@@ -170,7 +170,7 @@ export async function loadWorkspace(profile) {
         bal: r.balances || { annual: 20, sick: 10, comp: 5 },
         checkPrefs: r.check_prefs || {},
         branchId: r.branch_id || "", shiftId: r.shift_id || "", contractEnd: r.contract_end || "",
-        weekSchedule: r.week_schedule || null,
+        weekSchedule: r.week_schedule || null, scheduleMode: r.schedule_mode || "",
         nin: p?.nin || "", bvn: p?.bvn || "", tin: p?.tin || "",
         pension: p?.rsa_pin || "", bank: p?.bank || "",
         acctName: p?.account_name || "", acct: p?.account_number || "",
@@ -186,7 +186,11 @@ export async function loadWorkspace(profile) {
       };
     }),
     departments: (departments.data || []).map((d) => d.name),
-    branches: (branches.data || []).map((b) => ({ id: b.id, name: b.name, address: b.address || "" })),
+    branches: (branches.data || []).map((b) => ({
+      id: b.id, name: b.name, address: b.address || "",
+      weekSchedule: b.week_schedule || null,
+      useCompanySchedule: b.use_company_schedule !== false,
+    })),
     checks: (checks.data || []).map((r) => ({
       id: r.id, empId: r.employee_id, date: r.check_date, dueTime: r.due_time,
       answeredAt: r.answered_at || "", status: r.status, loc: r.location,

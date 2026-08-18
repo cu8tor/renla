@@ -59,29 +59,62 @@ function dayKeyFor(dateStr) {
   if (isNaN(dt.getTime())) return null;
   return DAYS[(dt.getDay() + 6) % 7]; // JS Sunday=0 → reindex so Monday=0, matching DAYS
 }
-/* The shift someone is on, for a given date (optional). Resolution order:
-   1. If the employee has a per-day weekly schedule and a date was given,
-      use that day's hours — or treat it as a day off if the day is marked
-      off, or fall through to (2)/(3) if that day was left unset.
-   2. Their assigned shift pattern (the old single-shift-for-every-day
-      behaviour), if they have one.
-   3. The company's default working day.
-   Calling this without a date (as existing code that doesn't have one yet
-   still does) skips straight to (2)/(3) — same behaviour as before this
-   per-day scheduling existed. */
-function shiftFor(work, emp, dateStr) {
-  const ws = emp && emp.weekSchedule;
-  if (ws && dateStr) {
-    const key = dayKeyFor(dateStr);
-    const day = key ? ws[key] : null;
-    if (day) {
-      if (day.off) return { id: "", name: "Day off", start: "", end: "", off: true };
-      if (day.start && day.end) return { id: "", name: key, start: day.start, end: day.end };
-    }
-  }
+/* Reads a single day out of a { Mon: {start,end}|{off:true}, ... } map.
+   Returns null if that day isn't set at all (so the caller can fall
+   through to the next thing in the chain), { off: true }, or
+   { start, end }. */
+function resolveWeekDay(schedule, key) {
+  if (!schedule || !key) return null;
+  const day = schedule[key];
+  if (!day) return null;
+  if (day.off) return { off: true };
+  if (day.start && day.end) return { start: day.start, end: day.end };
+  return null;
+}
+const dayOffShift = (key) => ({ id: "", name: key ? `${key} — day off` : "Day off", start: "", end: "", off: true });
+const dayShift = (key, day) => ({ id: "", name: key, start: day.start, end: day.end });
+/* The old single-shift-for-every-day fallback: the employee's assigned
+   shift pattern if they have one, else the company's default working day. */
+function patternShift(work, emp) {
   const list = (work && work.shifts && work.shifts.length) ? work.shifts : DEFAULT_SHIFTS;
   const found = emp && emp.shiftId ? list.find((x) => x.id === emp.shiftId) : null;
   return found || { id: "", name: "Working day", start: (work && work.dayStart) || "09:00", end: (work && work.dayEnd) || "17:00" };
+}
+/* The shift someone is on, for a given date (optional). An employee's
+   `scheduleMode` picks which source of hours applies:
+     "custom"   — their own per-day weekSchedule
+     "branch"   — their branch's hours (which may itself just be following
+                  the company's, or have its own override)
+     "standard" — the company's day-varying default hours directly,
+                  ignoring branch
+     "pattern"  — (default) their assigned shift pattern, same start/end
+                  every day — the original behaviour, for shift workers,
+                  night workers, and anyone whose hours don't vary by day
+   Missing `scheduleMode` defaults to "custom" if they have a weekSchedule
+   (back-compat with the first version of this feature), else "pattern"
+   (back-compat with every employee from before this feature existed).
+   Any day that resolves to nothing under the chosen mode — including
+   every mode when no date is given at all — falls through to the pattern.
+   `branches` is only needed for "branch" mode; safe to omit otherwise. */
+function shiftFor(work, emp, dateStr, branches) {
+  const mode = (emp && emp.scheduleMode) || (emp && emp.weekSchedule ? "custom" : "pattern");
+  const key = dateStr ? dayKeyFor(dateStr) : null;
+
+  if (key) {
+    if (mode === "custom") {
+      const day = resolveWeekDay(emp.weekSchedule, key);
+      if (day) return day.off ? dayOffShift(key) : dayShift(key, day);
+    } else if (mode === "branch") {
+      const branch = emp && emp.branchId ? (branches || []).find((b) => b.id === emp.branchId) : null;
+      const useOwn = branch && branch.useCompanySchedule === false;
+      const day = resolveWeekDay(useOwn ? branch.weekSchedule : (work && work.weekSchedule), key);
+      if (day) return day.off ? dayOffShift(key) : dayShift(key, day);
+    } else if (mode === "standard") {
+      const day = resolveWeekDay(work && work.weekSchedule, key);
+      if (day) return day.off ? dayOffShift(key) : dayShift(key, day);
+    }
+  }
+  return patternShift(work, emp);
 }
 /* How late someone was, against their own shift start. Handles a night
    worker clocking in at 00:10 for a shift that began at 20:00 yesterday. */
