@@ -146,7 +146,15 @@ export async function loadWorkspace(profile) {
       supabase.from("profiles").select("id, employee_id, full_name, role").eq("company_id", cid),
     ]);
 
-  const failed = [company, settings, employees, leave, attendance].find((r) => r.error);
+  // Previously only 5 of these 19 queries were checked for an error — a
+  // failed load of e.g. employee_pay, loans, or shifts was indistinguishable
+  // from "this company genuinely has none of those rows" (every mapper
+  // below defaults a failed/empty query the same way), so it would render
+  // as a normal-looking, quietly-wrong workspace instead of an error. Worst
+  // case was employee_pay: a failed fetch there zeroes every employee's pay
+  // fields with no signal to HR that anything went wrong.
+  const failed = [company, settings, employees, pay, departments, branches, leave, permissions, checks,
+    attendance, shifts, sites, devices, loans, news, docs, holidays, payruns, profiles].find((r) => r.error);
   if (failed) throw failed.error;
 
   const payById = Object.fromEntries((pay.data || []).map((p) => [p.employee_id, p]));

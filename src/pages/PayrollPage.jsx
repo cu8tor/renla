@@ -218,7 +218,7 @@ function Payslip({ emp, calc, month, company, ytd, template, onClose }) {
   );
 }
 
-function PayrollPage({ db, isHR, isManager, myEmp, empById, generatePayrun, updatePayrunLine, finalisePayrun, reopenPayrun, deletePayrun, requestLoan, decideLoan, writeOffLoan, toast }) {
+function PayrollPage({ db, isHR, isManager, myTeam, myEmp, empById, generatePayrun, updatePayrunLine, finalisePayrun, reopenPayrun, deletePayrun, requestLoan, decideLoan, writeOffLoan, toast }) {
   const [tab, setTab] = useState(isHR ? "runs" : "mine");
   const [month, setMonth] = useState(monthKey(new Date()));
   const [slip, setSlip] = useState(null);
@@ -229,8 +229,14 @@ function PayrollPage({ db, isHR, isManager, myEmp, empById, generatePayrun, upda
 
   const run = db.payruns.find((r) => r.month === month);
   const myLoans = myEmp ? db.loans.filter((l) => l.empId === myEmp.id) : [];
-  const pendingLoans = db.loans.filter((l) => l.status === "pending");
-  const activeLoans = db.loans.filter((l) => l.status === "active");
+  // HR sees everyone; a Manager sees only their own direct reports' loans
+  // (plus their own, for visibility — see "My pay" for that request's
+  // status). This mirrors LeavePage's team-scoping — previously this admin
+  // view showed and could act on every employee's loans regardless of who
+  // manages them.
+  const inScope = (l) => isHR || (myTeam || []).some((m) => m.id === l.empId) || l.empId === myEmp?.id;
+  const pendingLoans = db.loans.filter((l) => l.status === "pending" && inScope(l));
+  const activeLoans = db.loans.filter((l) => l.status === "active" && inScope(l));
   const myPayslips = myEmp ? db.payruns.filter((r) => r.status === "finalised" && r.lines.some((l) => l.empId === myEmp.id)) : [];
 
   return (
@@ -341,10 +347,12 @@ function PayrollPage({ db, isHR, isManager, myEmp, empById, generatePayrun, upda
                             {naira(l.monthly)}/month over {l.months} months · {l.reason}
                           </div>
                         </div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button className="cp-mini cp-mini-ok" onClick={() => decideLoan(l.id, true)}><Check size={14} /> Approve</button>
-                          <button className="cp-mini cp-mini-no" onClick={() => decideLoan(l.id, false)}><X size={14} /></button>
-                        </div>
+                        {(isHR || (myTeam || []).some((m) => m.id === l.empId)) && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button className="cp-mini cp-mini-ok" onClick={() => decideLoan(l.id, true)}><Check size={14} /> Approve</button>
+                            <button className="cp-mini cp-mini-no" onClick={() => decideLoan(l.id, false)}><X size={14} /></button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

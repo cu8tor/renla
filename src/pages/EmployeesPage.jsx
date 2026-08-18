@@ -112,7 +112,16 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
   const branch = f.branchId ? (db.branches || []).find((b) => b.id === f.branchId) : null;
   return (
     <Modal wide title={isNew ? "Add employee" : `Edit ${emp.name || "employee"}`} onClose={onCancel}
-      onSubmit={() => onSave({ ...f, weekSchedule: f.scheduleMode === "custom" ? (f.weekSchedule || null) : null })}
+      onSubmit={() => onSave({
+        ...f,
+        weekSchedule: f.scheduleMode === "custom" ? (f.weekSchedule || null) : null,
+        // Clear a leftover shiftId from a previous "Shift pattern" choice —
+        // otherwise shiftFor()'s fallback (used whenever "Standard"/"Branch"
+        // mode has no hours set for a given day) silently picks up that
+        // stale shift instead of the company/branch hours this screen just
+        // told the admin it would follow.
+        shiftId: f.scheduleMode === "pattern" ? (f.shiftId || "") : "",
+      })}
       submitLabel={isNew ? "Add employee" : "Save changes"}>
       <FormGroup title="Personal">
         <div className="cp-form-grid">

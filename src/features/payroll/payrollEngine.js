@@ -10,6 +10,13 @@
 const parseD = (s) => { if (!s) return null; const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const pad2 = (n) => String(n).padStart(2, "0");
+// Was missing entirely — personalOutMinutes/lateStatsFor called this without
+// it being imported or defined anywhere in this module, so any payroll run
+// touching an employee with an approved personal-time-out request that month
+// threw a ReferenceError partway through building the run (buildLine's
+// .map over active employees, in App.jsx). Definition copied verbatim from
+// attendanceLogic.js's hmToMin, same as the other date helpers above.
+const hmToMin = (hm) => { if (!hm || !hm.includes(":")) return null; const [h, m] = hm.split(":").map(Number); return h * 60 + m; };
 
 const NTA2025_BANDS = [
   { from: 0, to: 800000, rate: 0 },

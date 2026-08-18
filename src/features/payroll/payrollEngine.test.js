@@ -21,7 +21,44 @@ import {
   calendarWorkingDays,
   payeAnnual,
   computePayslip,
+  personalOutMinutes,
+  lateStatsFor,
 } from "./payrollEngine.js";
+
+describe("personalOutMinutes — regression: hmToMin was undefined in this module", () => {
+  it("does not throw, and correctly sums minutes for an approved personal excursion", () => {
+    // Previously this module used hmToMin without importing or defining it
+    // anywhere, so this call threw a ReferenceError as soon as an employee
+    // had at least one matching permission — which meant a whole payroll
+    // run (buildLine's .map over every active employee, in App.jsx) failed
+    // outright the moment any one employee had an approved personal
+    // time-out that month.
+    const permissions = [
+      { empId: "e1", kind: "excursion", category: "Personal", status: "approved", date: "2026-03-10", fromTime: "10:00", toTime: "11:30" },
+      { empId: "e1", kind: "excursion", category: "Personal", status: "pending", date: "2026-03-12", fromTime: "09:00", toTime: "10:00" }, // not approved — excluded
+      { empId: "e2", kind: "excursion", category: "Personal", status: "approved", date: "2026-03-11", fromTime: "13:00", toTime: "14:00" }, // different employee — excluded
+    ];
+    expect(() => personalOutMinutes(permissions, "e1", "2026-03")).not.toThrow();
+    expect(personalOutMinutes(permissions, "e1", "2026-03")).toBe(90);
+  });
+
+  it("returns 0 when nobody has any matching permission (the previously-untested, non-crashing path)", () => {
+    expect(personalOutMinutes([], "e1", "2026-03")).toBe(0);
+  });
+});
+
+describe("lateStatsFor — same regression, for the module's other hmToMin caller", () => {
+  it("does not throw, and correctly tallies late minutes/days against the company's opening time", () => {
+    const work = { dayStart: "09:00", graceMins: 15 };
+    const attendance = [
+      { empId: "e1", date: "2026-03-02", clockIn: "09:20" }, // 20 min in, 5 min late after grace
+      { empId: "e1", date: "2026-03-03", clockIn: "09:05" }, // inside grace — not late
+      { empId: "e1", date: "2026-03-04", clockIn: "09:40" }, // excused
+    ];
+    expect(() => lateStatsFor(attendance, "e1", "2026-03", work, ["2026-03-04"])).not.toThrow();
+    expect(lateStatsFor(attendance, "e1", "2026-03", work, ["2026-03-04"])).toEqual({ lateMinutes: 5, lateDays: 1, excusedLateDays: 1 });
+  });
+});
 
 describe("payeAnnual — NTA 2025 bands", () => {
   it("charges nothing at or below the first band's ceiling (₦800,000)", () => {

@@ -92,9 +92,11 @@ function AppShell() {
   const [profile, setProfile] = useState(null);      // signed-in user + role
   const [authReady, setAuthReady] = useState(false);
   const [recovery, setRecovery] = useState(false);   // came in via a password-reset link
+  const [authLinkError, setAuthLinkError] = useState("");  // an expired/already-used reset link
   const [loadError, setLoadError] = useState("");
   const dbRef = useRef(null);
   const syncing = useRef(false);
+  const lastSyncedRef = useRef(null);  // last snapshot successfully written to Supabase
   const profileRef = useRef(null);
   useEffect(() => { profileRef.current = profile; }, [profile]);
 
@@ -113,6 +115,20 @@ function AppShell() {
     if (!configured) { setAuthReady(true); setBooted(true); return; }
     let alive = true;
 
+    // An expired or already-used password-reset link fails inside Supabase's
+    // own client-side URL handling before it ever reaches onAuthChange below
+    // — no PASSWORD_RECOVERY event fires, no error is thrown anywhere this
+    // app's code runs, and the person is just quietly left on the plain
+    // sign-in screen with a dead token still sitting in the URL, no
+    // indication anything happened. Supabase does append an error to the
+    // URL fragment in that case, so surface it here instead.
+    if (window.location.hash.includes("error=")) {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      const desc = params.get("error_description");
+      setAuthLinkError(desc ? desc.replace(/\+/g, " ") : "That link didn't work — it may have expired or already been used.");
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+
     const refresh = async () => {
       try {
         const p = await getProfile();
@@ -123,9 +139,11 @@ function AppShell() {
           if (!alive) return;
           const n = normalizeDb(ws);
           dbRef.current = n;
+          lastSyncedRef.current = n;
           setDb(n);
         } else {
           dbRef.current = null;
+          lastSyncedRef.current = null;
           setDb(null);
         }
       } catch (e) {
@@ -152,7 +170,14 @@ function AppShell() {
       // the password-reset confirmation) could appear to randomly clear or
       // "time out" mid-entry: a routine token refresh was silently
       // remounting the page underneath the person typing.
-      if (event === "USER_UPDATED" || event === "TOKEN_REFRESHED") return;
+      // INITIAL_SESSION fires once, unconditionally, the moment this
+      // listener is registered — on top of the direct refresh() call two
+      // lines above that already covers exactly this case. Left unfiltered,
+      // it triggers a second, redundant loadWorkspace() on every single
+      // boot that finishes after the first render, forcing the same
+      // "Opening Renla…" reload-and-remount over whatever the person has
+      // already navigated into.
+      if (event === "USER_UPDATED" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") return;
       // SIGNED_IN also gets re-emitted by Supabase for an already-active
       // session (same tab-focus/reconnect situation above) — only treat it
       // as a real sign-in if it's actually a different account than the one
@@ -169,45 +194,83 @@ function AppShell() {
     try {
       const ws = normalizeDb(await loadWorkspace(profile));
       dbRef.current = ws;
+      lastSyncedRef.current = ws;
       setDb(ws);
     } catch (e) { toast(e.message || "Couldn't refresh", "danger"); }
   }, [profile]);
 
-  /* ---------- persistence: change the state, then save what changed ---------- */
-  const update = useCallback((fn) => {
-    setDb((cur) => {
-      if (!cur) return cur;
-      const before = dbRef.current || cur;
-      const next = fn(cur);
-      dbRef.current = next;
-      if (configured && profile?.companyId && !syncing.current) {
-        syncing.current = true;
-        syncChanges(before, next, profile.companyId)
-          .then(({ patches, errors }) => {
-            if (patches.length) {
-              setDb((d) => {
-                if (!d) return d;
-                let out = d;
-                patches.forEach((p) => {
-                  out = { ...out, [p.collection]: out[p.collection].map((x) => (x.id === p.id ? { ...x, ...p.changes } : x)) };
-                });
-                dbRef.current = out;
-                return out;
-              });
-            }
-            if (errors.length) {
-              setSaveError(true);
-              toast(errors[0], "danger");
-            } else {
-              setSaveError(false);
-            }
-          })
-          .catch((e) => { setSaveError(true); toast(e.message || "Couldn't save", "danger"); })
-          .finally(() => { syncing.current = false; });
-      }
-      return next;
-    });
+  /* ---------- persistence: change the state, then save what changed ----------
+     runSync() always diffs from lastSyncedRef (the last snapshot actually
+     confirmed written) to dbRef.current (the latest local state), and — if
+     a sync is already in flight when it's called — simply returns, relying
+     on the in-flight sync's own .finally() to notice more has piled up and
+     call itself again. Previously `update()` diffed from whatever
+     `before`/`dbRef.current` happened to be at that exact call, and if a
+     sync was already running it skipped syncChanges entirely for that
+     call — not queued, not retried, just silently never sent, since the
+     next call's diff would be computed against the now-already-advanced
+     dbRef.current and so would never see that older change again either.
+     Two clicks close together (e.g. approving two leave requests within
+     the same round trip) could permanently lose the second one with no
+     error shown. This version can't drop a change that way: whatever
+     hasn't reached lastSyncedRef yet always gets picked up by the next
+     sync pass, either immediately or right after the current one finishes. */
+  const runSync = useCallback(() => {
+    if (!configured || !profile?.companyId || syncing.current) return;
+    const from = lastSyncedRef.current;
+    const to = dbRef.current;
+    if (!from || !to || from === to) return; // nothing new to send
+    syncing.current = true;
+    syncChanges(from, to, profile.companyId)
+      .then(({ patches, errors }) => {
+        // Whatever we just attempted is now the baseline for the next diff,
+        // whether or not every row in it succeeded — see the errors branch
+        // below for why rows that failed still need a human to notice.
+        lastSyncedRef.current = to;
+        if (patches.length) {
+          setDb((d) => {
+            if (!d) return d;
+            let out = d;
+            patches.forEach((p) => {
+              out = { ...out, [p.collection]: out[p.collection].map((x) => (x.id === p.id ? { ...x, ...p.changes } : x)) };
+            });
+            dbRef.current = out;
+            lastSyncedRef.current = out;
+            return out;
+          });
+        }
+        if (errors.length) {
+          setSaveError(true);
+          // Every failed write, not just the first — a batch that touches
+          // several records (e.g. bulk edits) used to report only one
+          // error and stay silent about the rest.
+          toast(errors.length === 1 ? errors[0] : `${errors.length} changes didn't save: ${errors.join("; ")}`, "danger", errors.length > 1 ? 9000 : 3200);
+        } else {
+          setSaveError(false);
+        }
+      })
+      .catch((e) => { setSaveError(true); toast(e.message || "Couldn't save", "danger"); })
+      .finally(() => {
+        syncing.current = false;
+        // More local changes may have landed while this sync was running —
+        // send them now instead of waiting for the next unrelated update().
+        if (dbRef.current !== lastSyncedRef.current) runSync();
+      });
   }, [profile, toast]);
+
+  const update = useCallback((fn) => {
+    // Read/write dbRef.current directly rather than via setDb's functional-
+    // updater form, so runSync() below (which reads dbRef.current) is
+    // guaranteed to see this change immediately rather than depending on
+    // exactly when React chooses to invoke the updater callback.
+    const cur = dbRef.current;
+    if (!cur) return;
+    if (lastSyncedRef.current == null) lastSyncedRef.current = cur;
+    const next = fn(cur);
+    dbRef.current = next;
+    setDb(next);
+    runSync();
+  }, [runSync]);
 
   /* ---------- derived ---------- */
   const me = db && profile && !profile.noCompany ? { id: profile.id, name: profile.name, role: profile.role, employeeId: profile.employeeId } : null;
@@ -235,7 +298,7 @@ function AppShell() {
 
   if (recovery) return <ResetPasswordScreen theme={theme} dark={dark} setDark={setDark} onDone={() => setRecovery(false)} />;
 
-  if (!profile) return <AuthScreen theme={theme} dark={dark} setDark={setDark} />;
+  if (!profile) return <AuthScreen theme={theme} dark={dark} setDark={setDark} linkError={authLinkError} />;
   if (profile.noCompany) return <NewCompany theme={theme} dark={dark} setDark={setDark} profile={profile} />;
 
   if (loadError) {
@@ -260,7 +323,7 @@ function AppShell() {
   /* ================================================================ */
   /*  ACTIONS                                                          */
   /* ================================================================ */
-  const logout = async () => { setNavOpen(false); dbRef.current = null; setDb(null); setProfile(null); await sbSignOut(); };
+  const logout = async () => { setNavOpen(false); dbRef.current = null; lastSyncedRef.current = null; setDb(null); setProfile(null); await sbSignOut(); };
 
   const saveEmployee = (emp, isNew) => {
     update((d) => ({
@@ -283,7 +346,7 @@ function AppShell() {
 
   const applyLeave = (form) => {
     if (!myEmp) { toast("Your login isn't linked to an employee record", "warn"); return false; }
-    const validation = validateLeaveDates(form.from, form.to, parseD);
+    const validation = validateLeaveDates(form.from, form.to, parseD, db.leave.filter((l) => l.empId === myEmp.id));
     if (!validation.ok) { toast(validation.error, "warn"); return false; }
     const days = daysInclusive(form.from, form.to);
     const status = myEmp.managerId ? "pending_manager" : "pending_hr";
@@ -293,6 +356,17 @@ function AppShell() {
   };
 
   const decideLeave = (id, approve) => {
+    // A Manager may only decide their own direct reports' requests, at the
+    // manager stage — HR can decide any, at either stage. The Leave page's
+    // UI already hides the button for out-of-team requests; this repeats
+    // the check here so the function itself can't be called on someone
+    // outside the manager's team regardless of how it's invoked.
+    const target = db.leave.find((x) => x.id === id);
+    if (!isHR) {
+      if (!target || target.status !== "pending_manager" || !myTeam.some((m) => m.id === target.empId)) {
+        toast("You can only decide requests from your own team", "danger"); return;
+      }
+    }
     update((d) => {
       let employees = d.employees;
       const leave = d.leave.map((l) => {
@@ -361,7 +435,11 @@ function AppShell() {
 
     const { checks, failed, status } = evaluateChecks({ work: myWork, sites: db.sites, loc, deviceOk: myDeviceOk, selfie, ip });
     const t = nowHM();
-    const late = hmToMin(t) > hmToMin(myWork.dayStart) + myWork.graceMins;
+    // Against this employee's actual shift for today — not the company's flat
+    // dayStart — so night-shift/branch/custom-hours staff aren't flagged late
+    // just for clocking in on time against a shift that isn't theirs.
+    const todayShift = shiftFor(db.work, myEmp, todayISO(), db.branches);
+    const late = lateMinutesAgainst(todayShift.start, t, myWork.graceMins) > 0;
 
     update((d) => ({
       ...d,
@@ -389,7 +467,9 @@ function AppShell() {
     }
     const t = nowHM();
     update((d) => ({ ...d, attendance: d.attendance.map((a) => (a.id === myTodayAtt.id ? { ...a, clockOut: t, outLoc: loc } : a)) }));
-    toast(`Clocked out at ${t} · ${durLabel(hmToMin(t) - hmToMin(myTodayAtt.clockIn))} worked`);
+    // minutesBetween (not plain subtraction) so a night shift clocking out
+    // after midnight doesn't show as a negative/"—" duration.
+    toast(`Clocked out at ${t} · ${durLabel(minutesBetween(myTodayAtt.clockIn, t))} worked`);
   };
 
   /* ---- device registration ---- */
@@ -511,6 +591,13 @@ function AppShell() {
   };
 
   const decidePermission = (id, approve) => {
+    // Same team-scoping as decideLeave/decideLoan above.
+    const target = db.permissions.find((x) => x.id === id);
+    if (!isHR) {
+      if (!target || target.status !== "pending_manager" || !myTeam.some((m) => m.id === target.empId)) {
+        toast("You can only decide requests from your own team", "danger"); return;
+      }
+    }
     update((d) => ({ ...d, permissions: d.permissions.map((x) => {
       if (x.id !== id) return x;
       if (!approve) return { ...x, status: "declined" };
@@ -542,6 +629,15 @@ function AppShell() {
   };
 
   const decideLoan = (id, approve) => {
+    const loan = db.loans.find((l) => l.id === id);
+    // A Manager may only decide loans for their own direct reports — HR can
+    // decide any. This mirrors decideLeave's intent below; previously
+    // nothing here checked myTeam at all (only the Payroll page's UI chose
+    // whether to render the button), so calling this directly could act on
+    // any employee's loan regardless of who manages them.
+    if (!isHR && (!loan || !myTeam.some((m) => m.id === loan.empId))) {
+      toast("You can only decide requests from your own team", "danger"); return;
+    }
     update((d) => ({ ...d, loans: d.loans.map((l) => (l.id === id ? { ...l, status: approve ? "active" : "declined", approved: todayISO() } : l)) }));
     toast(approve ? "Approved — repayments start with the next pay run" : "Request declined", approve ? "ok" : "danger");
   };
@@ -811,7 +907,7 @@ function AppShell() {
                   <RotaPage {...{ db, isHR, isManager, myTeam, myEmp, empById, addShift, deleteShift, copyWeek }} />
                 } />
                 <Route path="/payroll" element={
-                  <PayrollPage {...{ db, isHR, isManager, myEmp, empById, generatePayrun, updatePayrunLine, finalisePayrun, reopenPayrun, deletePayrun, requestLoan, decideLoan, writeOffLoan, toast }} />
+                  <PayrollPage {...{ db, isHR, isManager, myTeam, myEmp, empById, generatePayrun, updatePayrunLine, finalisePayrun, reopenPayrun, deletePayrun, requestLoan, decideLoan, writeOffLoan, toast }} />
                 } />
                 <Route path="/leave" element={
                   <LeavePage {...{ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, applyLeave, requestPermission, decidePermission }} />

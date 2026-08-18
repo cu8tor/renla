@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CalendarDays, Clock3, Plus, Check, X, MapPin, ShieldCheck, Download, BadgeCheck, Trash2, Info, Play, Square, Timer, AlertTriangle, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
 import { signedUrl } from "../lib/supabase.js";
-import { DAYS, nowHM, hmToMin, durLabel, addDays, effectiveWork, anyoneHas } from "../features/attendance/attendanceLogic.js";
+import { DAYS, nowHM, hmToMin, durLabel, addDays, effectiveWork, anyoneHas, shiftFor, lateMinutesAgainst, minutesBetween } from "../features/attendance/attendanceLogic.js";
 import { parseD, iso, todayISO, startOfToday, fmtShort, fmtLong } from "../lib/format.js";
 import { distLabel, locErrLabel } from "../lib/geo.js";
 import { CHECK_LABEL, dueChecksFor, checkState } from "../lib/presence.js";
@@ -9,9 +9,12 @@ import { isOnLeaveToday } from "../features/insights/monthInsights.js";
 import { monthLabel, monthOptions } from "../lib/payrollHelpers.js";
 import { Avatar, Badge, Card, Btn, Stat, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
 
-function attStatus(rec, work) {
+// `shift` is this employee's actual shift for the record's date (from
+// shiftFor) — not the company's flat dayStart/dayEnd — so night-shift,
+// branch-hours, and custom-hours staff are judged against their own hours.
+function attStatus(rec, shift, graceMins) {
   if (!rec || !rec.clockIn) return { tone: "muted", label: "Not clocked in" };
-  const late = hmToMin(rec.clockIn) > hmToMin(work.dayStart) + work.graceMins;
+  const late = lateMinutesAgainst(shift.start, rec.clockIn, graceMins) > 0;
   if (!rec.clockOut) return { tone: late ? "warn" : "ok", label: late ? `Late · in ${rec.clockIn}` : `In since ${rec.clockIn}` };
   return { tone: "brand", label: `${rec.clockIn}–${rec.clockOut}` };
 }
@@ -206,6 +209,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
   const myWork = effectiveWork(work, myEmp);             // what applies to me
   const nowMin = hmToMin(nowHM());
   const today = todayISO();
+  const myShift = myEmp ? shiftFor(work, myEmp, today, db.branches) : null;  // my actual shift today
   const geoOn = anyoneHas(work, db.employees, "requireLocation");
   const verifyOn = myWork.requireLocation || myWork.requireDevice || myWork.requireSelfie || myWork.recordIP;
 
@@ -216,7 +220,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
   const myWeek = myEmp ? [...Array(7)].map((_, i) => {
     const d = iso(addDays(startOfToday(), -i));
     const r = recFor(myEmp.id, d);
-    const mins = r && r.clockIn && r.clockOut ? hmToMin(r.clockOut) - hmToMin(r.clockIn) : null;
+    const mins = r && r.clockIn && r.clockOut ? minutesBetween(r.clockIn, r.clockOut) : null;
     return { date: d, rec: r, mins };
   }) : [];
   const weekMins = myWeek.reduce((s, x) => s + (x.mins || 0), 0);
@@ -225,14 +229,15 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
     const rec = recFor(e.id, today);
     const onLeave = isOnLeaveToday(db.leave, e.id);
     const ew = effectiveWork(work, e);
+    const shift = shiftFor(work, e, today, db.branches);
     const due = rec ? dueChecksFor(ew, rec.clockIn, rec.clockOut, nowMin) : [];
     const checks = due.map((t) => {
       const cr = db.checks.find((c) => c.empId === e.id && c.date === today && c.dueTime === t);
       return { dueTime: t, rec: cr, state: checkState(cr, t, nowMin, ew.checkWindowMins) };
     });
-    return { e, rec, onLeave, checks, ew,
+    return { e, rec, onLeave, checks, ew, shift,
       missedCount: checks.filter((c) => c.state === "missed").length,
-      st: onLeave ? { tone: "accent", label: "On leave" } : attStatus(rec, work) };
+      st: onLeave ? { tone: "accent", label: "On leave" } : attStatus(rec, shift, work.graceMins) };
   });
   const inCount = boardRows.filter((r) => r.rec && r.rec.clockIn && !r.rec.clockOut && !r.onLeave).length;
   const doneCount = boardRows.filter((r) => r.rec && r.rec.clockOut).length;
@@ -272,9 +277,10 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
     .sort((a, b) => b.date.localeCompare(a.date));
 
   const histTotals = histRows.reduce((acc, r) => {
-    const mins = r.clockIn && r.clockOut ? hmToMin(r.clockOut) - hmToMin(r.clockIn) : null;
+    const mins = r.clockIn && r.clockOut ? minutesBetween(r.clockIn, r.clockOut) : null;
     if (mins != null && mins > 0) { acc.minutes += mins; acc.days += 1; }
-    if (r.clockIn && hmToMin(r.clockIn) > hmToMin(work.dayStart) + (work.graceMins || 0)) acc.late += 1;
+    const shift = shiftFor(work, empById(r.empId), r.date, db.branches);
+    if (r.clockIn && lateMinutesAgainst(shift.start, r.clockIn, work.graceMins || 0) > 0) acc.late += 1;
     return acc;
   }, { minutes: 0, days: 0, late: 0 });
 
@@ -283,8 +289,9 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
       const head = ["Date", "Employee", "Clock in", "Clock out", "Hours", "Late", "Status"];
       const lines = histRows.map((r) => {
         const e = empById(r.empId);
-        const mins = r.clockIn && r.clockOut ? hmToMin(r.clockOut) - hmToMin(r.clockIn) : null;
-        const late = r.clockIn && hmToMin(r.clockIn) > hmToMin(work.dayStart) + (work.graceMins || 0);
+        const shift = shiftFor(work, e, r.date, db.branches);
+        const mins = r.clockIn && r.clockOut ? minutesBetween(r.clockIn, r.clockOut) : null;
+        const late = r.clockIn && lateMinutesAgainst(shift.start, r.clockIn, work.graceMins || 0) > 0;
         return [r.date, e?.name || "", r.clockIn || "", r.clockOut || "",
                 mins != null ? (mins / 60).toFixed(2) : "", late ? "Yes" : "No", r.status || ""]
           .map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",");
@@ -313,12 +320,12 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
               <div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Today · {fmtLong(today)}</div>
               <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, marginTop: 4, letterSpacing: "-0.02em" }}>
                 {!myTodayAtt || !myTodayAtt.clockIn ? "Not clocked in yet"
-                  : myTodayAtt.clockOut ? `Done · ${durLabel(hmToMin(myTodayAtt.clockOut) - hmToMin(myTodayAtt.clockIn))}`
+                  : myTodayAtt.clockOut ? `Done · ${durLabel(minutesBetween(myTodayAtt.clockIn, myTodayAtt.clockOut))}`
                   : `Clocked in at ${myTodayAtt.clockIn}`}
               </div>
               {myTodayAtt && myTodayAtt.clockIn && !myTodayAtt.clockOut && (
                 <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3 }}>
-                  {hmToMin(myTodayAtt.clockIn) > hmToMin(work.dayStart) + work.graceMins
+                  {myShift && lateMinutesAgainst(myShift.start, myTodayAtt.clockIn, work.graceMins) > 0
                     ? <span style={{ color: "var(--warn)", fontWeight: 600 }}>Marked late</span>
                     : "On time"}
                 </div>
@@ -513,7 +520,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
                               ))}
                             </div>}
                       </td>}
-                      <td style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{rec?.clockIn && rec?.clockOut ? durLabel(hmToMin(rec.clockOut) - hmToMin(rec.clockIn)) : "—"}</td>
+                      <td style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{rec?.clockIn && rec?.clockOut ? durLabel(minutesBetween(rec.clockIn, rec.clockOut)) : "—"}</td>
                       <td>{!rec ? <Badge tone={st.tone}>{st.label}</Badge>
                         : rec.status === "review" ? <Badge tone="warn"><ShieldAlert size={10} /> Review</Badge>
                         : rec.status === "rejected" ? <Badge tone="danger"><XCircle size={10} /> Rejected</Badge>
@@ -540,7 +547,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
             <Section title="Last 7 days">
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {myWeek.map((d) => {
-                  const st = attStatus(d.rec, work);
+                  const st = attStatus(d.rec, shiftFor(work, myEmp, d.date, db.branches), work.graceMins);
                   return (
                     <div key={d.date} className="cp-leaverow">
                       <div style={{ width: 44, textAlign: "center", flex: "0 0 auto" }}>
@@ -606,8 +613,9 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
                   <tbody>
                     {histRows.map((r) => {
                       const e = empById(r.empId);
-                      const mins = r.clockIn && r.clockOut ? hmToMin(r.clockOut) - hmToMin(r.clockIn) : null;
-                      const isLate = r.clockIn && hmToMin(r.clockIn) > hmToMin(work.dayStart) + work.graceMins;
+                      const shift = shiftFor(work, e, r.date, db.branches);
+                      const mins = r.clockIn && r.clockOut ? minutesBetween(r.clockIn, r.clockOut) : null;
+                      const isLate = r.clockIn && lateMinutesAgainst(shift.start, r.clockIn, work.graceMins) > 0;
                       return (
                         <tr key={r.id}>
                           <td style={{ whiteSpace: "nowrap" }}>

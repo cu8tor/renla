@@ -111,4 +111,30 @@ describe("validateLeaveDates", () => {
     expect(validateLeaveDates("2026-08-15", "2026-08-15", parseD)).toEqual({ ok: true });
     expect(validateLeaveDates("2026-08-15", "2026-08-20", parseD)).toEqual({ ok: true });
   });
+
+  it("still accepts a valid range when no existing requests are passed (back-compat)", () => {
+    expect(validateLeaveDates("2026-08-15", "2026-08-20", parseD)).toEqual({ ok: true });
+  });
+
+  it("rejects a new range that overlaps an existing pending or approved request", () => {
+    // Regression: two overlapping requests could both get approved (nothing
+    // warned about the collision), each contributing its full day count to
+    // paidLeave in payroll — silently inflating it and understating any
+    // absence deduction for the month.
+    const existing = [{ from: "2026-08-10", to: "2026-08-14", status: "approved", type: "Annual" }];
+    expect(validateLeaveDates("2026-08-12", "2026-08-16", parseD, existing).ok).toBe(false);
+    expect(validateLeaveDates("2026-08-12", "2026-08-16", parseD, existing).error).toMatch(/overlaps/i);
+    // fully contained, exact match, and edge-touching cases all count as overlap
+    expect(validateLeaveDates("2026-08-11", "2026-08-12", parseD, existing).ok).toBe(false);
+    expect(validateLeaveDates("2026-08-14", "2026-08-18", parseD, existing).ok).toBe(false); // shares the boundary day
+  });
+
+  it("does not reject a range that overlaps a declined request, or one with no overlap at all", () => {
+    const existing = [
+      { from: "2026-08-10", to: "2026-08-14", status: "declined", type: "Annual" },
+      { from: "2026-08-01", to: "2026-08-05", status: "approved", type: "Sick" },
+    ];
+    expect(validateLeaveDates("2026-08-10", "2026-08-14", parseD, existing)).toEqual({ ok: true });
+    expect(validateLeaveDates("2026-08-20", "2026-08-22", parseD, existing)).toEqual({ ok: true });
+  });
 });

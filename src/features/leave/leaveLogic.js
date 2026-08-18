@@ -40,10 +40,24 @@ function decrementLeaveBalance(employee, leaveType, days) {
   };
 }
 
-/* Validation for a new leave request's date range. */
-function validateLeaveDates(from, to, parseD) {
+/* Validation for a new leave request's date range. `existing` (optional —
+   omit it and this behaves exactly as before) is this employee's own other
+   leave requests; if the new range overlaps one that's still pending or
+   already approved, this rejects it instead of silently letting both
+   through. Two overlapping approved requests used to double-count that
+   employee's paid-leave days in payroll (each counted in full, so a
+   genuinely 5-day overlap could inflate paidLeave by the full second
+   request's days too), quietly reducing their absence deduction with
+   nothing in the UI ever flagging the collision. */
+function validateLeaveDates(from, to, parseD, existing = []) {
   if (!from || !to) return { ok: false, error: "Add a start and end date" };
   if (parseD(to) < parseD(from)) return { ok: false, error: "The end date is before the start date" };
+  const overlap = (existing || []).find((l) =>
+    l.status !== "declined" && parseD(from) <= parseD(l.to) && parseD(l.from) <= parseD(to)
+  );
+  if (overlap) {
+    return { ok: false, error: `Overlaps your ${overlap.status === "approved" ? "approved" : "pending"} ${overlap.type} request (${overlap.from} to ${overlap.to})` };
+  }
   return { ok: true };
 }
 

@@ -56,11 +56,15 @@ function AuthShell({ theme, dark, setDark, children, badge, title, blurb }) {
   );
 }
 
-function AuthScreen({ theme, dark, setDark }) {
+function AuthScreen({ theme, dark, setDark, linkError }) {
   const [mode, setMode] = useState("in");
   const [f, setF] = useState({ email: "", password: "" });
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
+  // Pre-fills from an expired/already-used password-reset link (see App.jsx)
+  // so it's not a completely silent dead end — previously this failed
+  // entirely inside Supabase's own client-side handling before this app's
+  // code ever ran, so the person just landed here with no explanation.
+  const [err, setErr] = useState(linkError || "");
   const [sent, setSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
@@ -110,7 +114,7 @@ function AuthScreen({ theme, dark, setDark }) {
           <Field label="Email">
             <input className="cp-input" autoFocus type="email" autoComplete="email"
               value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && sendReset()} />
+              onKeyDown={(e) => e.key === "Enter" && !busy && sendReset()} />
           </Field>
           {err && <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "center" }}><AlertCircle size={14} /> {err}</div>}
           <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={sendReset}>{busy ? "Sending…" : "Send reset link"}</Btn></div>
@@ -131,13 +135,13 @@ function AuthScreen({ theme, dark, setDark }) {
         <Field label="Email">
           <input className="cp-input" autoFocus type="email" autoComplete="email"
             value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && go()} />
+            onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
         </Field>
         <Field label="Password">
           <input className="cp-input" type="password"
             autoComplete={mode === "in" ? "current-password" : "new-password"}
             value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && go()} />
+            onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
         </Field>
         {mode === "in" && (
           <div style={{ textAlign: "right", marginTop: -6 }}>
@@ -194,12 +198,12 @@ function ResetPasswordScreen({ theme, dark, setDark, onDone }) {
         <Field label="New password">
           <input className="cp-input" autoFocus type="password" autoComplete="new-password"
             value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && go()} />
+            onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
         </Field>
         <Field label="Confirm new password">
           <input className="cp-input" type="password" autoComplete="new-password"
             value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && go()} />
+            onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
         </Field>
         {err && <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "center" }}><AlertCircle size={14} /> {err}</div>}
         <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={go}>{busy ? "Saving…" : "Save new password"}</Btn></div>

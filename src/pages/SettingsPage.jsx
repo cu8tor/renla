@@ -19,6 +19,7 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
   const [newCheckTime, setNewCheckTime] = useState("");
   const [branch, setBranch] = useState({ name: "", address: "" });
   const [editingBranchHours, setEditingBranchHours] = useState("");
+  const [confirmDelBranch, setConfirmDelBranch] = useState(null);
   const [newDept, setNewDept] = useState("");
   const [hol, setHol] = useState({ name: "", date: "" });
   const [confirmReset, setConfirmReset] = useState(false);
@@ -355,11 +356,7 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
                           </div>
                         </div>
                         <button className="cp-mini" onClick={() => setEditingBranchHours(editing ? "" : b.id)}><Clock3 size={13} /></button>
-                        <button className="cp-mini cp-mini-no" onClick={() => {
-                          update((d) => ({ ...d, branches: d.branches.filter((x) => x.id !== b.id),
-                            employees: d.employees.map((e) => (e.branchId === b.id ? { ...e, branchId: "" } : e)) }));
-                          toast("Branch removed", "danger");
-                        }}><Trash2 size={13} /></button>
+                        <button className="cp-mini cp-mini-no" onClick={() => setConfirmDelBranch(b)}><Trash2 size={13} /></button>
                       </div>
                       {editing && (
                         <BranchHoursEditor branch={b} onClose={() => setEditingBranchHours("")}
@@ -547,6 +544,23 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
         <Modal title="Reset everything" onClose={() => setConfirmReset(false)} submitLabel="Delete everything"
           onSubmit={async () => { setConfirmReset(false); await resetAll(); }}>
           <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>This deletes every employee, leave request, update and account, and starts the setup again. Download a backup first if there's anything you want to keep.</p>
+        </Modal>
+      )}
+
+      {confirmDelBranch && (
+        <Modal title="Remove branch" onClose={() => setConfirmDelBranch(null)} submitLabel="Remove branch"
+          onSubmit={() => {
+            update((d) => ({ ...d, branches: d.branches.filter((x) => x.id !== confirmDelBranch.id),
+              employees: d.employees.map((e) => (e.branchId === confirmDelBranch.id ? { ...e, branchId: "" } : e)) }));
+            toast("Branch removed", "danger");
+            setConfirmDelBranch(null);
+          }}>
+          <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+            Remove <b>{confirmDelBranch.name}</b>?{" "}
+            {(() => { const n = db.employees.filter((e) => e.branchId === confirmDelBranch.id).length;
+              return n > 0 ? `${n} ${n === 1 ? "person" : "people"} assigned here will fall back to the company's working hours.` : "Nobody is currently assigned to this branch."; })()}
+            {" "}This can't be undone.
+          </p>
         </Modal>
       )}
     </div>
