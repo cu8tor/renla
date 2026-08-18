@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CalendarDays, Clock3, Plus, Check, X, MapPin, ShieldCheck, Download, BadgeCheck, Trash2, Info, Play, Square, Timer, AlertTriangle, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
-import { signedUrl } from "../lib/supabase.js";
+import { signedUrl, loadAttendanceHistory, ATTENDANCE_WINDOW_DAYS } from "../lib/supabase.js";
 import { DAYS, nowHM, hmToMin, durLabel, addDays, effectiveWork, anyoneHas, shiftFor, lateMinutesAgainst, minutesBetween } from "../features/attendance/attendanceLogic.js";
 import { parseD, iso, todayISO, startOfToday, fmtShort, fmtLong } from "../lib/format.js";
 import { distLabel, locErrLabel } from "../lib/geo.js";
@@ -197,7 +197,7 @@ function LocBadge({ loc }) {
   return <Badge tone="warn"><MapPin size={10} /> {loc.siteName ? `${distLabel(loc.dist)} from ${loc.siteName}` : "Off site"}</Badge>;
 }
 
-function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAtt, performClockIn, clockOut, addManualAttendance, deleteAttendance, locating, localDevice, myDeviceRecord, myDeviceOk, requestDevice, reviewAttendance, answerCheck, excuseCheck, recordMiss }) {
+function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAtt, performClockIn, clockOut, addManualAttendance, deleteAttendance, locating, localDevice, myDeviceRecord, myDeviceOk, requestDevice, reviewAttendance, answerCheck, excuseCheck, recordMiss, companyId }) {
   const [tab, setTab] = useState(isHR || isManager ? "today" : "me");
   const [manual, setManual] = useState(null);
   const [clockOpen, setClockOpen] = useState(false);
@@ -264,8 +264,34 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
 
   const flagged = db.attendance.filter((a) => a.status === "review" && scopeIds.includes(a.empId)).sort((a, b) => b.date.localeCompare(a.date));
 
-  /* ---- history ---- */
-  const histRows = db.attendance
+  /* ---- history ----
+     db.attendance only ever holds the last ATTENDANCE_WINDOW_DAYS of
+     records (see loadWorkspace in supabase.js) — that's a deliberate
+     scale-proofing limit, not a bug, so an old company's boot load and
+     every edit's diff cost stay bounded regardless of how many years of
+     attendance history it's accumulated. Picking a month older than that
+     window below fetches it directly and read-only via
+     loadAttendanceHistory — those rows are held in this component's own
+     state (olderHistRows) and never merge into db.attendance/get near
+     sync.js, so they can't ever be mistaken for "record no longer exists,
+     delete it" the way widening the synced snapshot would risk. */
+  const windowCutoff = iso(addDays(startOfToday(), -ATTENDANCE_WINDOW_DAYS));
+  const histOutOfWindow = histMonth !== "all" && histMonth < windowCutoff.slice(0, 7);
+  const histEmpId = (isHR || isManager) ? histEmp : (myEmp?.id || "all");
+  const [olderHist, setOlderHist] = useState({ key: "", loading: false, rows: [] });
+  useEffect(() => {
+    if (!histOutOfWindow || !companyId || !histEmpId) return;
+    const key = histMonth + "|" + histEmpId;
+    if (olderHist.key === key) return;
+    let alive = true;
+    setOlderHist({ key, loading: true, rows: [] });
+    loadAttendanceHistory(companyId, { empId: histEmpId, month: histMonth })
+      .then((rows) => { if (alive) setOlderHist({ key, loading: false, rows }); })
+      .catch(() => { if (alive) setOlderHist({ key, loading: false, rows: [] }); });
+    return () => { alive = false; };
+  }, [histOutOfWindow, histMonth, histEmpId, companyId]);
+
+  const histRows = (histOutOfWindow ? olderHist.rows : db.attendance)
     .filter((a) => {
       if (!scopeIds.includes(a.empId)) return false;
       if (!isHR && !isManager) return a.empId === myEmp?.id;
@@ -273,7 +299,6 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
       if (histMonth !== "all" && !a.date.startsWith(histMonth)) return false;
       return true;
     })
-    .filter((a) => histMonth === "all" || a.date.startsWith(histMonth))
     .sort((a, b) => b.date.localeCompare(a.date));
 
   const histTotals = histRows.reduce((acc, r) => {
@@ -301,7 +326,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `attendance-${histMonth === "all" ? "all-time" : histMonth}.csv`;
+      a.download = `attendance-${histMonth === "all" ? "recent" : histMonth}.csv`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) { /* nothing sensible to do */ }
@@ -586,13 +611,18 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
               <div style={{ minWidth: 170 }}>
                 <Field label="Month">
                   <select className="cp-input" value={histMonth} onChange={(e) => setHistMonth(e.target.value)}>
-                    <option value="all">All time</option>
+                    <option value="all">Last {ATTENDANCE_WINDOW_DAYS} days</option>
                     {monthOptions(12).map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
                   </select>
                 </Field>
               </div>
-              <Btn variant="ghost" icon={Download} onClick={exportHistory}>Download CSV</Btn>
+              <Btn variant="ghost" icon={Download} onClick={exportHistory} disabled={histOutOfWindow && olderHist.loading}>Download CSV</Btn>
             </div>
+            {histOutOfWindow && (
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+                {olderHist.loading ? "Loading that month from the server…" : `Older than the last ${ATTENDANCE_WINDOW_DAYS} days — loaded separately from ${monthLabel(histMonth)}.`}
+              </div>
+            )}
           </Card>
 
           <div className="cp-tiles" style={{ marginBottom: 18 }}>
@@ -603,7 +633,8 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
           </div>
 
           <Card pad={0}>
-            {histRows.length === 0 ? <div style={{ padding: 30 }}><Empty text="No attendance recorded for that selection." /></div> : (
+            {histOutOfWindow && olderHist.loading ? <div style={{ padding: 30 }}><Empty text="Loading…" /></div> :
+             histRows.length === 0 ? <div style={{ padding: 30 }}><Empty text="No attendance recorded for that selection." /></div> : (
               <div className="cp-table-wrap">
                 <table className="cp-table">
                   <thead><tr>

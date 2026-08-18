@@ -29,9 +29,12 @@ function evaluateChecks({ work, sites, loc, deviceOk, selfie, ip }) {
   return { checks, failed, status: failed.length ? "review" : "approved" };
 }
 const CHECK_LABEL = { gps: "Location", device: "Device", selfie: "Selfie", ip: "IP address" };
-function pruneSelfies(attendance) {
+// Also used for presence-check records, which carry the same date/selfie
+// shape — not just attendance (see App.jsx's update(), which now calls this
+// for both on every change, not only at clock-in).
+function pruneSelfies(list) {
   const cutoff = iso(addDays(startOfToday(), -90));
-  return attendance.map((a) => (a.date < cutoff && a.selfie ? { ...a, selfie: "" } : a));
+  return (list || []).map((a) => (a.date < cutoff && a.selfie ? { ...a, selfie: "" } : a));
 }
 function dueChecksFor(work, clockIn, clockOut, nowMin) {
   if (!work.presenceChecks || !clockIn) return [];

@@ -114,6 +114,39 @@ function friendly(msg = "") {
 
 const num = (v) => Number(v) || 0;
 
+/* attendance and presence_checks are the two tables that grow forever —
+   one row per employee per working day, indefinitely. Loading a company's
+   *entire* history of both on every single login/boot was fine at pilot
+   scale but doesn't scale with a tenant's age: a company three years in,
+   with daily attendance and mid-shift presence checks piling up the whole
+   time, would see both load time and sync.js's in-memory diffing get
+   slower the older the company gets, not the bigger it gets. This caps
+   what's fetched at boot to a recent rolling window.
+
+   Deliberately NOT paired with any "unload/evict old records from memory
+   later in the session" logic — sync.js's diff treats a record that was
+   loaded before but is missing now as "delete this from the server," so
+   anything that shrinks `db.attendance`/`db.checks` after boot would look
+   identical to the user deleting that history. Older data is reachable
+   instead through loadAttendanceHistory() below, which is a plain read
+   that never touches the synced `db` snapshot — see AttendancePage.jsx's
+   History tab. */
+export const ATTENDANCE_WINDOW_DAYS = 120;
+const windowCutoffISO = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - ATTENDANCE_WINDOW_DAYS);
+  return d.toISOString().slice(0, 10);
+};
+
+const mapAttendanceRow = (r) => ({
+  id: r.id, empId: r.employee_id, date: r.work_date, clockIn: r.clock_in || "",
+  clockOut: r.clock_out || "", inLoc: r.in_location, outLoc: r.out_location,
+  selfie: r.selfie_path || "", deviceId: r.device_id || "",
+  deviceLabel: r.device_label || "", ip: r.ip_address || "",
+  checks: r.checks || {}, status: r.status, late: r.late, reviewNote: r.review_note || "",
+  note: r.note || "",
+});
+
 export async function loadWorkspace(profile) {
   const cid = profile.companyId;
   const q = (table, order) => {
@@ -121,6 +154,7 @@ export async function loadWorkspace(profile) {
     if (order) sel = sel.order(order.col, { ascending: order.asc !== false });
     return sel;
   };
+  const cutoff = windowCutoffISO();
 
   const [company, settings, employees, pay, departments, branches, leave, permissions, checks, attendance,
          shifts, sites, devices, loans, news, docs, holidays, payruns, profiles] =
@@ -133,8 +167,8 @@ export async function loadWorkspace(profile) {
     q("branches", { col: "name" }),
       q("leave_requests", { col: "applied", asc: false }),
     q("permissions", { col: "on_date", asc: false }),
-    q("presence_checks", { col: "check_date", asc: false }),
-      q("attendance", { col: "work_date", asc: false }),
+    q("presence_checks", { col: "check_date", asc: false }).gte("check_date", cutoff),
+      q("attendance", { col: "work_date", asc: false }).gte("work_date", cutoff),
       q("shifts"),
       q("sites"),
       q("devices"),
@@ -214,14 +248,7 @@ export async function loadWorkspace(profile) {
       id: r.id, empId: r.employee_id, type: r.leave_type, from: r.from_date,
       to: r.to_date, days: r.days, reason: r.reason || "", status: r.status, applied: r.applied,
     })),
-    attendance: (attendance.data || []).map((r) => ({
-      id: r.id, empId: r.employee_id, date: r.work_date, clockIn: r.clock_in || "",
-      clockOut: r.clock_out || "", inLoc: r.in_location, outLoc: r.out_location,
-      selfie: r.selfie_path || "", deviceId: r.device_id || "",
-      deviceLabel: r.device_label || "", ip: r.ip_address || "",
-      checks: r.checks || {}, status: r.status, late: r.late, reviewNote: r.review_note || "",
-      note: r.note || "",
-    })),
+    attendance: (attendance.data || []).map(mapAttendanceRow),
     shifts: (shifts.data || []).map((s) => ({
       id: s.id, empId: s.employee_id, date: s.shift_date,
       start: s.start_time, end: s.end_time, note: s.note || "",
@@ -257,6 +284,28 @@ export async function loadWorkspace(profile) {
   };
 }
 
+/* Reads one month of attendance history directly from Supabase, for a
+   month older than the rolling window loadWorkspace() keeps in memory
+   (see ATTENDANCE_WINDOW_DAYS above). This is a plain, read-only query —
+   its result is never merged into the app's `db` state or passed to
+   syncChanges, so it can't ever be mistaken for a deletion the way
+   widening/narrowing the synced snapshot would be. Used by
+   AttendancePage.jsx's History tab when someone picks an older month. */
+export async function loadAttendanceHistory(companyId, { empId, month } = {}) {
+  const from = `${month}-01`;
+  const [y, m] = month.split("-").map(Number);
+  const to = new Date(y, m, 0).toISOString().slice(0, 10); // last day of that month
+  let sel = supabase.from("attendance").select("*")
+    .eq("company_id", companyId)
+    .gte("work_date", from)
+    .lte("work_date", to)
+    .order("work_date", { ascending: false });
+  if (empId && empId !== "all") sel = sel.eq("employee_id", empId);
+  const { data, error } = await sel;
+  if (error) throw error;
+  return (data || []).map(mapAttendanceRow);
+}
+
 /* ------------------------------------------------------------- storage */
 
 export async function uploadSelfie(dataUrl, companyId, employeeId, date) {
@@ -267,6 +316,18 @@ export async function uploadSelfie(dataUrl, companyId, employeeId, date) {
     .upload(path, blob, { contentType: "image/jpeg", upsert: true });
   if (error) throw error;
   return path;
+}
+
+/* Actually removes selfie photos from storage — not just clearing the
+   database column that points at them. Previously pruneSelfies() (see
+   presence.js) only ever cleared the `selfie` field on an old attendance
+   record, which meant the underlying image blob stayed in the "selfies"
+   bucket forever: an unbounded, unreferenced pile of employee face photos
+   accumulating storage cost and outliving the 90-day retention the app's
+   own pruning logic implies. sync.js calls this whenever it detects a
+   selfie path was cleared (pruned) or its record was deleted. */
+export async function deleteSelfies(paths) {
+  return supabase.storage.from("selfies").remove(paths);
 }
 
 export async function uploadDocument(file, companyId) {

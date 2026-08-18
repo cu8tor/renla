@@ -11,7 +11,7 @@
    sends exactly that one row.
    ===================================================================== */
 
-import { supabase, uploadSelfie } from "./supabase.js";
+import { supabase, uploadSelfie, deleteSelfies } from "./supabase.js";
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const byId = (list = []) => Object.fromEntries(list.map((x) => [x.id, x]));
@@ -188,6 +188,27 @@ export async function syncChanges(prev, next, companyId) {
         a.selfie = "";
       }
     }
+  }
+
+  /* --- the other half of selfie handling: actually delete the photo file
+         when a record that had one is pruned (see App.jsx's update(), which
+         clears the `selfie` field on records older than 90 days) or deleted
+         outright (e.g. HR removing a bad attendance record). Previously
+         only the database's pointer to the file was ever cleared/removed —
+         the image itself stayed in storage indefinitely. A stored path
+         starting with "data:" is a photo that never finished uploading
+         this session, so there's nothing in storage yet to delete for it. */
+  {
+    const stalePaths = [];
+    for (const collection of ["attendance", "checks"]) {
+      const n = byId(next[collection]);
+      for (const before of prev[collection] || []) {
+        if (!before.selfie || before.selfie.startsWith("data:")) continue;
+        const after = n[before.id];
+        if (!after || !after.selfie) stalePaths.push(before.selfie);
+      }
+    }
+    if (stalePaths.length) await run("delete old selfie photos", deleteSelfies(stalePaths));
   }
 
   /* --- employees (plus their separate pay record) --- */

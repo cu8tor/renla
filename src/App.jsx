@@ -266,7 +266,14 @@ function AppShell() {
     const cur = dbRef.current;
     if (!cur) return;
     if (lastSyncedRef.current == null) lastSyncedRef.current = cur;
-    const next = fn(cur);
+    let next = fn(cur);
+    // Clear selfie photos older than 90 days on every update — not just on
+    // clock-in — so retention is enforced reliably regardless of which
+    // action happens to run next; this also covers presence-check photos,
+    // which previously were never pruned at all. Clearing the field here is
+    // only half of it — syncChanges (sync.js) is what actually deletes the
+    // underlying file from storage once it sees the change.
+    next = { ...next, attendance: pruneSelfies(next.attendance), checks: pruneSelfies(next.checks) };
     dbRef.current = next;
     setDb(next);
     runSync();
@@ -340,6 +347,15 @@ function AppShell() {
       employees: d.employees.filter((e) => e.id !== id).map((e) => (e.managerId === id ? { ...e, managerId: "" } : e)),
       leave: d.leave.filter((l) => l.empId !== id),
       users: d.users.filter((u) => u.employeeId !== id),
+      // Device registrations have no value once the employee is gone — they
+      // were previously left behind, showing up in Settings → Registered
+      // devices as "Unknown" with no way to identify or bulk-clean them.
+      // (Attendance, leave-balance history, loans, and payrun lines are
+      // deliberately NOT cleaned up here — deleteEmployee is for correcting
+      // a mistaken entry, not offboarding; a real departure uses the
+      // "Exited" status instead and keeps its records, which payroll/audit
+      // history should retain regardless.)
+      devices: d.devices.filter((x) => x.empId !== id),
     }));
     toast("Employee removed", "danger");
   };
@@ -441,13 +457,14 @@ function AppShell() {
     const todayShift = shiftFor(db.work, myEmp, todayISO(), db.branches);
     const late = lateMinutesAgainst(todayShift.start, t, myWork.graceMins) > 0;
 
+    // (old-selfie pruning now happens for every update(), not just this one — see update() itself)
     update((d) => ({
       ...d,
-      attendance: pruneSelfies([{
+      attendance: [{
         id: uid("att"), empId: myEmp.id, date: todayISO(), clockIn: t, clockOut: "",
         inLoc: loc, outLoc: null, selfie: selfie || "", deviceId: localDevice?.id || "",
         deviceLabel: localDevice?.label || "", ip: ip || "", checks, status, late, reviewNote: "", note: "",
-      }, ...d.attendance]),
+      }, ...d.attendance],
     }));
 
     if (status === "review") toast(`Clocked in at ${t} — flagged for review (${failed.map((f) => CHECK_LABEL[f]).join(", ")})`, "warn");
@@ -901,7 +918,7 @@ function AppShell() {
                   <EmployeesPage {...{ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, empById, toast }} />
                 } />
                 <Route path="/attendance" element={
-                  <AttendancePage {...{ db, isHR, isManager, myTeam, myEmp, empById, myTodayAtt, performClockIn, clockOut, addManualAttendance, deleteAttendance, locating, localDevice, myDeviceRecord, myDeviceOk, requestDevice, reviewAttendance, answerCheck, excuseCheck, recordMiss }} />
+                  <AttendancePage {...{ db, isHR, isManager, myTeam, myEmp, empById, myTodayAtt, performClockIn, clockOut, addManualAttendance, deleteAttendance, locating, localDevice, myDeviceRecord, myDeviceOk, requestDevice, reviewAttendance, answerCheck, excuseCheck, recordMiss, companyId: profile.companyId }} />
                 } />
                 <Route path="/rota" element={
                   <RotaPage {...{ db, isHR, isManager, myTeam, myEmp, empById, addShift, deleteShift, copyWeek }} />

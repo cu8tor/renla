@@ -1,21 +1,60 @@
 import { Users, CalendarDays, Clock3, ChevronRight, Cake, Pin, PartyPopper, Users2, BadgeCheck, UserPlus, Timer, AlertTriangle, ShieldAlert, Banknote } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, PieChart, Pie } from "recharts";
-import { durLabel } from "../features/attendance/attendanceLogic.js";
+import { durLabel, shiftFor, lateMinutesAgainst } from "../features/attendance/attendanceLogic.js";
 import { MONTHS, naira, parseD, todayISO, startOfToday, fmtShort, fmtLong, DEPT_COLORS } from "../lib/format.js";
 import { isOnLeaveToday, monthInsights, branchBreakdown } from "../features/insights/monthInsights.js";
 import { monthKey, monthLabel } from "../lib/payrollHelpers.js";
 import { Avatar, Badge, Card, Stat, Section, Empty, Dot } from "../components/ui.jsx";
 import { LeaveDecideRow } from "./LeavePage.jsx";
 
+// Turns the numbers this person actually cares about right now into a
+// short, scannable status line under the greeting — "3 late today, 2
+// leave requests waiting" rather than making them go find that out from
+// the stat tiles below. Only ever states things that are true of data
+// that exists (no invented "payroll due" date — there's no pay-day field
+// in the schema, so this reports the one honest proxy: whether the
+// current month's run has been finalised yet, and only once that's
+// actually getting urgent).
+function narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLeaveNow, upcomingHols, myLeave }) {
+  const today = todayISO();
+  const parts = [];
+  if (isHR || isManager) {
+    const scope = isHR ? db.employees : myTeam;
+    const lateToday = scope.filter((e) => {
+      const rec = db.attendance.find((a) => a.empId === e.id && a.date === today);
+      if (!rec || !rec.clockIn) return false;
+      const shift = shiftFor(db.work, e, today, db.branches);
+      return lateMinutesAgainst(shift.start, rec.clockIn, db.work.graceMins || 0) > 0;
+    }).length;
+    if (lateToday > 0) parts.push(`${lateToday} ${lateToday === 1 ? "person" : "people"} late today`);
+    if (pendingForMe.length > 0) parts.push(`${pendingForMe.length} leave ${pendingForMe.length === 1 ? "request" : "requests"} waiting on you`);
+    if (isHR && onLeaveNow.length > 0) parts.push(`${onLeaveNow.length} on leave`);
+    if (isHR) {
+      const now = new Date();
+      const mKey = monthKey(now);
+      const run = db.payruns.find((r) => r.month === mKey);
+      const daysLeft = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate();
+      if ((!run || run.status !== "finalised") && daysLeft <= 10)
+        parts.push(`payroll for ${monthLabel(mKey)} ${run ? "still a draft" : "not started"} — ${daysLeft}d left in the month`);
+    }
+  } else if (myEmp) {
+    const mine = (myLeave || []).filter((l) => l.status.startsWith("pending"));
+    if (mine.length > 0) parts.push(`${mine.length} of your ${mine.length === 1 ? "request is" : "requests are"} still pending`);
+    if (upcomingHols[0] && upcomingHols[0].diff <= 7) parts.push(`${upcomingHols[0].name} in ${upcomingHols[0].diff}d`);
+  }
+  return parts.length ? parts.join(" · ") : "here's where things stand.";
+}
+
 function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees }) {
   const hr = new Date().getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const myLeave = myEmp ? db.leave.filter((l) => l.empId === myEmp.id) : [];
+  const narrative = narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLeaveNow, upcomingHols, myLeave });
   return (
     <div className="cp-fade">
       <div style={{ marginBottom: 22 }}>
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>{greeting}, {me.name.split(" ")[0]}</h2>
-        <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>{fmtLong(todayISO())} · here's where things stand.</p>
+        <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>{fmtLong(todayISO())} · {narrative}</p>
       </div>
 
       <div className="cp-tiles">
