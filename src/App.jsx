@@ -95,13 +95,15 @@ function AppShell() {
   const [loadError, setLoadError] = useState("");
   const dbRef = useRef(null);
   const syncing = useRef(false);
+  const profileRef = useRef(null);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
 
   const theme = dark ? DARK : LIGHT;
 
-  const toast = useCallback((msg, tone = "ok") => {
+  const toast = useCallback((msg, tone = "ok", ms = 3200) => {
     const id = uid("t");
     setToasts((t) => [...t, { id, msg, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ms);
   }, []);
 
   /* ---------- boot: watch the session, then load the workspace ---------- */
@@ -134,18 +136,28 @@ function AppShell() {
     };
 
     refresh();
-    const off = onAuthChange((_session, event) => {
+    const off = onAuthChange((session, event) => {
       // A password-reset link lands here as a real sign-in (Supabase opens a
       // session for it), so without this check the person would land straight
       // in the dashboard instead of being asked to choose a new password.
       if (event === "PASSWORD_RECOVERY") { setRecovery(true); return; }
-      // Saving the new password (updateUser) fires its own USER_UPDATED event
-      // on this same listener. Nothing about the workspace changed, so don't
-      // force the "Opening Renla…" reload here — that would unmount
-      // ResetPasswordScreen mid-flow and wipe its "Password updated"
-      // confirmation, dropping the person straight back to a blank form as
-      // if nothing had happened.
-      if (event === "USER_UPDATED") return;
+      // USER_UPDATED (e.g. saving a new password) and TOKEN_REFRESHED (the
+      // background session-token renewal Supabase does automatically, and
+      // which it also re-fires when the tab regains focus/reconnects) are
+      // pure session bookkeeping — nothing about who's signed in or what
+      // data should be loaded actually changed. Reacting to them here would
+      // force the app back through the full "Opening Renla…" loader, which
+      // unmounts whatever's on screen and wipes any in-progress form —
+      // this is why the "Add employee" / "New company" setup screens (and
+      // the password-reset confirmation) could appear to randomly clear or
+      // "time out" mid-entry: a routine token refresh was silently
+      // remounting the page underneath the person typing.
+      if (event === "USER_UPDATED" || event === "TOKEN_REFRESHED") return;
+      // SIGNED_IN also gets re-emitted by Supabase for an already-active
+      // session (same tab-focus/reconnect situation above) — only treat it
+      // as a real sign-in if it's actually a different account than the one
+      // already loaded.
+      if (event === "SIGNED_IN" && profileRef.current && session?.user?.id === profileRef.current.id) return;
       setBooted(false);
       refresh();
     });
