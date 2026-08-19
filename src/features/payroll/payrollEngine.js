@@ -36,7 +36,7 @@ const DEFAULT_PAYROLL = {
   pensionRate: 8,
   nhfRate: 0,
   workingDays: 26,
-  workingDaysMode: "fixed",     // "fixed" | "calendar" (weekdays minus public holidays)
+  workingDaysMode: "fixed",     // "fixed" | "calendar" (Mon–Fri minus public holidays) | "calendar6" (Mon–Sat minus public holidays)
   payBasis: "full",             // "full" = monthly salary regardless | "daysWorked" = pro-rate by attendance
   latenessMode: "none",         // "none" | "prorata" (per late minute) | "fixed" (flat fee per late day)
   latenessFee: 1000,            // ₦ per late day when latenessMode = "fixed"
@@ -47,21 +47,27 @@ const DEFAULT_PAYROLL = {
 };
 
 /* Weekdays in a month, minus any public holidays that fall on one */
-function calendarWorkingDays(mKey, holidays = []) {
+// sixDay = true counts Monday–Saturday as working days (only Sunday
+// excluded) — for companies that work a 6-day week — instead of the
+// default Monday–Friday.
+function calendarWorkingDays(mKey, holidays = [], sixDay = false) {
   const [y, m] = mKey.split("-").map(Number);
   const last = new Date(y, m, 0).getDate();
   let n = 0;
   for (let day = 1; day <= last; day++) {
     const d = new Date(y, m - 1, day);
     const wd = d.getDay();
-    if (wd === 0 || wd === 6) continue;
+    if (sixDay ? wd === 0 : (wd === 0 || wd === 6)) continue;
     if (holidays.some((h) => h.date === iso(d))) continue;
     n++;
   }
   return n;
 }
-const resolveWorkingDays = (payroll, mKey, holidays) =>
-  payroll.workingDaysMode === "calendar" ? calendarWorkingDays(mKey, holidays) : (Number(payroll.workingDays) || 26);
+const resolveWorkingDays = (payroll, mKey, holidays) => {
+  if (payroll.workingDaysMode === "calendar") return calendarWorkingDays(mKey, holidays, false);
+  if (payroll.workingDaysMode === "calendar6") return calendarWorkingDays(mKey, holidays, true);
+  return Number(payroll.workingDays) || 26;
+};
 
 /* Total minutes late across a month, measured against the company's opening time */
 function lateStatsFor(attendance, empId, mKey, work, excusedDates = []) {

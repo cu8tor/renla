@@ -19,6 +19,7 @@ import {
   NTA2025_BANDS,
   DEFAULT_PAYROLL,
   calendarWorkingDays,
+  resolveWorkingDays,
   payeAnnual,
   computePayslip,
   personalOutMinutes,
@@ -100,6 +101,32 @@ describe("calendarWorkingDays", () => {
 
   it("excludes a public holiday that falls on a weekday", () => {
     expect(calendarWorkingDays("2026-02", [{ date: "2026-02-16" }])).toBe(19);
+  });
+
+  it("counts Monday–Saturday (only Sunday excluded) when sixDay is true", () => {
+    expect(calendarWorkingDays("2026-02", [], true)).toBe(24);
+  });
+
+  it("still excludes a public holiday that falls on a weekday in sixDay mode", () => {
+    expect(calendarWorkingDays("2026-02", [{ date: "2026-02-16" }], true)).toBe(23);
+  });
+});
+
+describe("resolveWorkingDays", () => {
+  it("uses the fixed number when workingDaysMode is 'fixed'", () => {
+    expect(resolveWorkingDays({ workingDaysMode: "fixed", workingDays: 22 }, "2026-02", [])).toBe(22);
+  });
+
+  it("falls back to 26 when 'fixed' but no number is set", () => {
+    expect(resolveWorkingDays({ workingDaysMode: "fixed", workingDays: 0 }, "2026-02", [])).toBe(26);
+  });
+
+  it("uses the Mon–Fri calendar count when workingDaysMode is 'calendar'", () => {
+    expect(resolveWorkingDays({ workingDaysMode: "calendar" }, "2026-02", [])).toBe(20);
+  });
+
+  it("uses the Mon–Sat calendar count when workingDaysMode is 'calendar6'", () => {
+    expect(resolveWorkingDays({ workingDaysMode: "calendar6" }, "2026-02", [])).toBe(24);
   });
 });
 
