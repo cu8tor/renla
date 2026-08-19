@@ -1,9 +1,29 @@
 import { useState } from "react";
-import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer, Building2, KeyRound, ChevronLeft } from "lucide-react";
+import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer, Building2, KeyRound, ChevronLeft, Eye, EyeOff } from "lucide-react";
 import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany, requestPasswordReset, updatePassword } from "../lib/supabase.js";
 import { Card, Btn, Field, Dot } from "../components/ui.jsx";
 import { StyleTag } from "../components/StyleTag.jsx";
 import renlaLogoWhite from "../assets/renla-logo-white.png";
+
+// A password <input> with a show/hide toggle — used everywhere someone
+// types a password (sign in, sign up, choosing a new one) so a typo isn't
+// only discoverable by getting "wrong password" back after submitting.
+// Defaults hidden, same as a plain password field always has; each field
+// keeps its own show/hide state rather than sharing one, so revealing the
+// "new password" field on the reset screen doesn't also reveal "confirm."
+function PasswordInput({ value, onChange, onKeyDown, autoComplete, autoFocus, placeholder }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="cp-input-wrap">
+      <input className="cp-input" type={show ? "text" : "password"} autoComplete={autoComplete}
+        autoFocus={autoFocus} placeholder={placeholder} value={value} onChange={onChange} onKeyDown={onKeyDown} />
+      <button type="button" className="cp-input-eye" tabIndex={-1}
+        onClick={() => setShow((s) => !s)} title={show ? "Hide password" : "Show password"}>
+        {show ? <EyeOff size={15} /> : <Eye size={15} />}
+      </button>
+    </div>
+  );
+}
 
 function NotConfigured({ theme }) {
   return (
@@ -138,7 +158,7 @@ function AuthScreen({ theme, dark, setDark, linkError }) {
             onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
         </Field>
         <Field label="Password">
-          <input className="cp-input" type="password"
+          <PasswordInput
             autoComplete={mode === "in" ? "current-password" : "new-password"}
             value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
@@ -196,12 +216,12 @@ function ResetPasswordScreen({ theme, dark, setDark, onDone }) {
       title="Choose a new password" blurb="Pick something you haven't used before on this account.">
       <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 14 }}>
         <Field label="New password">
-          <input className="cp-input" autoFocus type="password" autoComplete="new-password"
+          <PasswordInput autoFocus autoComplete="new-password"
             value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
         </Field>
         <Field label="Confirm new password">
-          <input className="cp-input" type="password" autoComplete="new-password"
+          <PasswordInput autoComplete="new-password"
             value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && !busy && go()} />
         </Field>

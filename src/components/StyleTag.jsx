@@ -151,6 +151,10 @@ input,select,textarea{font-family:inherit}
 .cp-input{width:100%;border:1px solid var(--line);background:var(--card2);border-radius:9px;padding:9px 11px;font-size:13.5px;color:var(--ink);outline:none;transition:all .15s ease}
 .cp-input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-ring);background:var(--card)}
 textarea.cp-input{resize:vertical;line-height:1.5}
+.cp-input-wrap{position:relative}
+.cp-input-wrap .cp-input{padding-right:36px}
+.cp-input-eye{position:absolute;top:50%;right:4px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:28px;height:28px;background:transparent;border:none;border-radius:6px;color:var(--muted);cursor:pointer}
+.cp-input-eye:hover{color:var(--ink);background:var(--card2)}
 
 .cp-toasts{position:fixed;bottom:22px;right:22px;z-index:80;display:flex;flex-direction:column;gap:10px}
 .cp-toast{display:flex;align-items:center;gap:11px;background:var(--card);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:11px;padding:11px 15px;font-size:13px;font-weight:500;box-shadow:var(--shadow);min-width:220px;animation:cpToast .28s cubic-bezier(.2,.7,.2,1)}
