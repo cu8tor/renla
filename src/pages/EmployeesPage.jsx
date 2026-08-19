@@ -112,13 +112,34 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
       )}
 
       {confirmDel && (
-        <Modal title="Remove employee" onClose={() => setConfirmDel(null)} onSubmit={() => { deleteEmployee(confirmDel.id); setConfirmDel(null); }} submitLabel="Remove permanently">
-          <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
-            Remove <b>{confirmDel.name}</b> from your records? Their leave history and login will go too. This can't be undone — export a backup first if you might want it back.
-          </p>
-        </Modal>
+        <DeleteEmployeeModal emp={confirmDel} onClose={() => setConfirmDel(null)}
+          onConfirm={() => { deleteEmployee(confirmDel.id); setConfirmDel(null); }} />
       )}
     </div>
+  );
+}
+
+// Typing the word out is deliberately friction — deleting an employee wipes
+// their leave history and login, with no undo, so a stray click on the
+// wrong row shouldn't be enough to do it. Its own component (rather than
+// inline state in EmployeesPage) so the typed text always starts blank:
+// this only ever exists while confirmDel is set, so opening it for a
+// different employee is a fresh mount, not a state carried over from
+// whoever was being deleted a moment ago.
+function DeleteEmployeeModal({ emp, onClose, onConfirm }) {
+  const [typed, setTyped] = useState("");
+  const ready = typed.trim() === "DELETE";
+  return (
+    <Modal title="Remove employee" onClose={onClose} submitLabel="Remove permanently" danger
+      submitDisabled={!ready} onSubmit={() => { if (ready) onConfirm(); }}>
+      <p style={{ fontSize: 14, lineHeight: 1.6, margin: "0 0 16px" }}>
+        Remove <b>{emp.name}</b> from your records? Their leave history and login will go too. This can't be undone — export a backup first if you might want it back.
+      </p>
+      <Field label={<>Type <b>DELETE</b> to confirm</>}>
+        <input className="cp-input" autoFocus value={typed} onChange={(e) => setTyped(e.target.value)}
+          placeholder="DELETE" onKeyDown={(e) => { if (e.key === "Enter" && ready) onConfirm(); }} />
+      </Field>
+    </Modal>
   );
 }
 

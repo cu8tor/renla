@@ -103,7 +103,7 @@ function Empty({ text, action }) {
   return <div style={{ padding: "26px 4px", textAlign: "center", color: "var(--muted)", fontSize: 13 }}>{text}{action && <div style={{ marginTop: 12 }}>{action}</div>}</div>;
 }
 function Dot({ c }) { return <span style={{ width: 8, height: 8, borderRadius: 8, background: c, display: "inline-block" }} />; }
-function Modal({ title, children, onClose, onSubmit, submitLabel, wide }) {
+function Modal({ title, children, onClose, onSubmit, submitLabel, wide, submitDisabled, danger }) {
   return (
     <div className="cp-modal-wrap" onClick={onClose}>
       <div className={"cp-modal" + (wide ? " wide" : "")} onClick={(e) => e.stopPropagation()}>
@@ -115,7 +115,7 @@ function Modal({ title, children, onClose, onSubmit, submitLabel, wide }) {
         {onSubmit && (
           <div className="cp-modal-foot">
             <button className="cp-btn cp-btn-ghost cp-btn-md" onClick={onClose}>Cancel</button>
-            <button className="cp-btn cp-btn-primary cp-btn-md" onClick={onSubmit}>{submitLabel}</button>
+            <button className={"cp-btn cp-btn-md " + (danger ? "cp-btn-danger" : "cp-btn-primary")} onClick={onSubmit} disabled={submitDisabled}>{submitLabel}</button>
           </div>
         )}
       </div>

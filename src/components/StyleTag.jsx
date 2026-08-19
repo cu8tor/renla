@@ -75,6 +75,10 @@ input,select,textarea{font-family:inherit}
 .cp-btn-primary:hover{background:var(--brand-strong)}
 .cp-btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
 .cp-btn-ghost:hover{border-color:var(--muted)}
+.cp-btn-danger{background:var(--danger);color:#fff}
+.cp-btn-danger:hover{opacity:.9}
+.cp-btn:disabled{opacity:.45;cursor:not-allowed}
+.cp-btn:disabled:hover{background:inherit}
 .cp-link{display:inline-flex;align-items:center;gap:3px;background:transparent;border:none;color:var(--brand);font-size:12.5px;font-weight:600}
 .cp-link:hover{text-decoration:underline}
 .cp-mini{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
