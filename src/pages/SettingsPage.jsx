@@ -86,10 +86,11 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
                 <select className="cp-input" value={pr.workingDaysMode} onChange={(e) => setPr({ ...pr, workingDaysMode: e.target.value })}>
                   <option value="fixed">Fixed number I set</option>
                   <option value="calendar">Weekdays in the month, minus public holidays</option>
+                  <option value="calendar6">Weekdays + Saturdays, minus public holidays</option>
                 </select>
               </Field>
-              <Field label="Working days per month" hint={pr.workingDaysMode === "calendar" ? "Ignored — calculated from the calendar" : "Used for the daily rate"}>
-                <input className="cp-input" disabled={pr.workingDaysMode === "calendar"} value={pr.workingDays} onChange={(e) => setPr({ ...pr, workingDays: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} />
+              <Field label="Working days per month" hint={pr.workingDaysMode !== "fixed" ? "Ignored — calculated from the calendar" : "Used for the daily rate"}>
+                <input className="cp-input" disabled={pr.workingDaysMode !== "fixed"} value={pr.workingDays} onChange={(e) => setPr({ ...pr, workingDays: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} />
               </Field>
             </div>
 
