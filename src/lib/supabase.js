@@ -213,6 +213,7 @@ export async function loadWorkspace(profile) {
         kin: r.next_of_kin || "", emergency: r.emergency || "",
         referenceName: r.reference_name || "", referencePhone: r.reference_phone || "",
         referenceRelationship: r.reference_relationship || "", avatarPath: r.avatar_path || "",
+        profileLocked: Boolean(r.profile_locked),
         bal: r.balances || { annual: 20, sick: 10, comp: 5 },
         checkPrefs: r.check_prefs || {},
         branchId: r.branch_id || "", shiftId: r.shift_id || "", contractEnd: r.contract_end || "",

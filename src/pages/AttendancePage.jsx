@@ -190,6 +190,74 @@ function ClockInModal({ work, deviceOk, deviceLabel, onClose, onDone }) {
   );
 }
 
+// The "clock in / clock out" card — shown on the Attendance page and also
+// (per the user's request — the dashboard should be a place employees
+// actually use, not just a reporting screen for HR) on the Dashboard.
+// Self-contained: computes its own effective shift/work rules and owns the
+// verification-modal state, so either page can drop it in with just the
+// handful of values App.jsx already computes (myTodayAtt, performClockIn,
+// clockOut, locating, myDeviceOk/myDeviceRecord for the device check).
+function ClockCard({ db, myEmp, myTodayAtt, performClockIn, clockOut, locating, myDeviceOk, myDeviceRecord }) {
+  const [clockOpen, setClockOpen] = useState(false);
+  if (!myEmp) return null;
+  const work = db.work;
+  const myWork = effectiveWork(work, myEmp);
+  const today = todayISO();
+  const myShift = shiftFor(work, myEmp, today, db.branches);
+  const verifyOn = myWork.requireLocation || myWork.requireDevice || myWork.requireSelfie || myWork.recordIP;
+  return (
+    <Card style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Today · {fmtLong(today)}</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, marginTop: 4, letterSpacing: "-0.02em" }}>
+            {!myTodayAtt || !myTodayAtt.clockIn ? "Not clocked in yet"
+              : myTodayAtt.clockOut ? `Done · ${durLabel(minutesBetween(myTodayAtt.clockIn, myTodayAtt.clockOut))}`
+              : `Clocked in at ${myTodayAtt.clockIn}`}
+          </div>
+          {myTodayAtt && myTodayAtt.clockIn && !myTodayAtt.clockOut && (
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3 }}>
+              {myShift && lateMinutesAgainst(myShift.start, myTodayAtt.clockIn, work.graceMins) > 0
+                ? <span style={{ color: "var(--warn)", fontWeight: 600 }}>Marked late</span>
+                : "On time"}
+            </div>
+          )}
+          {myTodayAtt?.inLoc && <div style={{ marginTop: 8 }}><LocBadge loc={myTodayAtt.inLoc} /></div>}
+          {myTodayAtt?.checks && Object.keys(myTodayAtt.checks).length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              {Object.entries(myTodayAtt.checks).map(([k, v]) => <CheckPill key={k} name={k} state={v} />)}
+              {myTodayAtt.status === "review" && <Badge tone="warn"><ShieldAlert size={10} /> Awaiting review</Badge>}
+              {myTodayAtt.status === "rejected" && <Badge tone="danger"><XCircle size={10} /> Rejected</Badge>}
+            </div>
+          )}
+          {verifyOn && (
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 10, display: "flex", gap: 6, alignItems: "flex-start", maxWidth: 440, lineHeight: 1.5 }}>
+              <ShieldCheck size={13} style={{ marginTop: 1, flex: "0 0 auto" }} />
+              <span>Checks run only when you clock in and out{work.requireSelfie ? ", including a photo taken at that moment" : ""} — never in between.</span>
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          {locating ? <Btn disabled icon={Timer}>Checking…</Btn>
+            : (!myTodayAtt || !myTodayAtt.clockIn)
+            ? <Btn icon={Play} onClick={() => (verifyOn ? setClockOpen(true) : performClockIn({ selfie: "" }))}>Clock in</Btn>
+            : !myTodayAtt.clockOut
+              ? <Btn icon={Square} variant="ghost" onClick={clockOut}>Clock out</Btn>
+              : <Badge tone="ok"><Check size={11} /> Finished for today</Badge>}
+        </div>
+      </div>
+
+      {clockOpen && (
+        <ClockInModal
+          work={work} deviceOk={myDeviceOk} deviceLabel={myDeviceRecord?.label}
+          onClose={() => setClockOpen(false)}
+          onDone={performClockIn}
+        />
+      )}
+    </Card>
+  );
+}
+
 function LocBadge({ loc }) {
   if (!loc) return null;
   if (loc.error) return <Badge tone="muted"><MapPin size={10} /> {locErrLabel(loc.error)}</Badge>;
@@ -200,7 +268,6 @@ function LocBadge({ loc }) {
 function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAtt, performClockIn, clockOut, addManualAttendance, deleteAttendance, locating, localDevice, myDeviceRecord, myDeviceOk, requestDevice, reviewAttendance, answerCheck, excuseCheck, recordMiss, companyId }) {
   const [tab, setTab] = useState(isHR || isManager ? "today" : "me");
   const [manual, setManual] = useState(null);
-  const [clockOpen, setClockOpen] = useState(false);
   const [zoom, setZoom] = useState(null);
   const [histEmp, setHistEmp] = useState(isHR || isManager ? "all" : "me");
   const [histMonth, setHistMonth] = useState("all");
@@ -209,9 +276,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
   const myWork = effectiveWork(work, myEmp);             // what applies to me
   const nowMin = hmToMin(nowHM());
   const today = todayISO();
-  const myShift = myEmp ? shiftFor(work, myEmp, today, db.branches) : null;  // my actual shift today
   const geoOn = anyoneHas(work, db.employees, "requireLocation");
-  const verifyOn = myWork.requireLocation || myWork.requireDevice || myWork.requireSelfie || myWork.recordIP;
 
   const scope = isHR ? db.employees : isManager ? [...myTeam, myEmp].filter(Boolean) : myEmp ? [myEmp] : [];
   const recFor = (empId, date) => db.attendance.find((a) => a.empId === empId && a.date === date);
@@ -338,49 +403,8 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
         action={isHR && <Btn icon={Plus} onClick={() => setManual({ empId: "", date: today, clockIn: "", clockOut: "", note: "" })}>Record manually</Btn>} />
 
       {/* my clock card */}
-      {myEmp && (
-        <Card style={{ marginBottom: 18 }}>
-          <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Today · {fmtLong(today)}</div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, marginTop: 4, letterSpacing: "-0.02em" }}>
-                {!myTodayAtt || !myTodayAtt.clockIn ? "Not clocked in yet"
-                  : myTodayAtt.clockOut ? `Done · ${durLabel(minutesBetween(myTodayAtt.clockIn, myTodayAtt.clockOut))}`
-                  : `Clocked in at ${myTodayAtt.clockIn}`}
-              </div>
-              {myTodayAtt && myTodayAtt.clockIn && !myTodayAtt.clockOut && (
-                <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3 }}>
-                  {myShift && lateMinutesAgainst(myShift.start, myTodayAtt.clockIn, work.graceMins) > 0
-                    ? <span style={{ color: "var(--warn)", fontWeight: 600 }}>Marked late</span>
-                    : "On time"}
-                </div>
-              )}
-              {myTodayAtt?.inLoc && <div style={{ marginTop: 8 }}><LocBadge loc={myTodayAtt.inLoc} /></div>}
-              {myTodayAtt?.checks && Object.keys(myTodayAtt.checks).length > 0 && (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {Object.entries(myTodayAtt.checks).map(([k, v]) => <CheckPill key={k} name={k} state={v} />)}
-                  {myTodayAtt.status === "review" && <Badge tone="warn"><ShieldAlert size={10} /> Awaiting review</Badge>}
-                  {myTodayAtt.status === "rejected" && <Badge tone="danger"><XCircle size={10} /> Rejected</Badge>}
-                </div>
-              )}
-              {verifyOn && (
-                <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 10, display: "flex", gap: 6, alignItems: "flex-start", maxWidth: 440, lineHeight: 1.5 }}>
-                  <ShieldCheck size={13} style={{ marginTop: 1, flex: "0 0 auto" }} />
-                  <span>Checks run only when you clock in and out{work.requireSelfie ? ", including a photo taken at that moment" : ""} — never in between.</span>
-                </div>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              {locating ? <Btn disabled icon={Timer}>Checking…</Btn>
-                : (!myTodayAtt || !myTodayAtt.clockIn)
-                ? <Btn icon={Play} onClick={() => (verifyOn ? setClockOpen(true) : performClockIn({ selfie: "" }))}>Clock in</Btn>
-                : !myTodayAtt.clockOut
-                  ? <Btn icon={Square} variant="ghost" onClick={clockOut}>Clock out</Btn>
-                  : <Badge tone="ok"><Check size={11} /> Finished for today</Badge>}
-            </div>
-          </div>
-        </Card>
-      )}
+      <ClockCard db={db} myEmp={myEmp} myTodayAtt={myTodayAtt} performClockIn={performClockIn} clockOut={clockOut}
+        locating={locating} myDeviceOk={myDeviceOk} myDeviceRecord={myDeviceRecord} />
 
       {myOutstanding.length > 0 && (
         <Card style={{ marginBottom: 18, borderColor: "var(--brand)" }}>
@@ -683,14 +707,6 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
         <PresenceCheckModal dueTime={checkOpen} onClose={() => setCheckOpen(null)} onDone={answerCheck} />
       )}
 
-      {clockOpen && (
-        <ClockInModal
-          work={work} deviceOk={myDeviceOk} deviceLabel={myDeviceRecord?.label}
-          onClose={() => setClockOpen(false)}
-          onDone={performClockIn}
-        />
-      )}
-
       {zoom && (
         <Modal title="Clock-in photo" onClose={() => setZoom(null)}>
           <div style={{ textAlign: "center" }}>
@@ -728,4 +744,4 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
 }
 
 
-export { attStatus, SelfieThumb, CheckPill, SelfieCam, PresenceCheckModal, ClockInModal, LocBadge, AttendancePage };
+export { attStatus, SelfieThumb, CheckPill, SelfieCam, PresenceCheckModal, ClockInModal, ClockCard, LocBadge, AttendancePage };

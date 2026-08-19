@@ -32,8 +32,8 @@ function normalizeDb(d) {
     employeeDocs: d.employeeDocs || [],
     employees: (d.employees || []).map((e) =>
       e.pay
-        ? { ...e, checkPrefs: e.checkPrefs || {}, referenceName: e.referenceName || "", referencePhone: e.referencePhone || "", referenceRelationship: e.referenceRelationship || "", avatarPath: e.avatarPath || "" }
-        : { ...e, bvn: e.bvn || "", checkPrefs: e.checkPrefs || {}, pay: { ...emptyPay(), basic: Number(e.salary) || 0, annualRent: 0 }, referenceName: e.referenceName || "", referencePhone: e.referencePhone || "", referenceRelationship: e.referenceRelationship || "", avatarPath: e.avatarPath || "" }
+        ? { ...e, checkPrefs: e.checkPrefs || {}, referenceName: e.referenceName || "", referencePhone: e.referencePhone || "", referenceRelationship: e.referenceRelationship || "", avatarPath: e.avatarPath || "", profileLocked: Boolean(e.profileLocked) }
+        : { ...e, bvn: e.bvn || "", checkPrefs: e.checkPrefs || {}, pay: { ...emptyPay(), basic: Number(e.salary) || 0, annualRent: 0 }, referenceName: e.referenceName || "", referencePhone: e.referencePhone || "", referenceRelationship: e.referenceRelationship || "", avatarPath: e.avatarPath || "", profileLocked: Boolean(e.profileLocked) }
     ),
     work: { ...DEFAULT_WORK, ...(d.work || {}) },
   };
@@ -45,7 +45,7 @@ function emptyEmployee() {
     salary: 0, nin: "", bvn: "", tin: "", pension: "", bank: "", acctName: "", acct: "", pay: emptyPay(),
     kin: "", emergency: "", referenceName: "", referencePhone: "", referenceRelationship: "", avatarPath: "",
     bal: blankBalances(), checkPrefs: {}, branchId: "", shiftId: "", contractEnd: "",
-    weekSchedule: null, scheduleMode: "pattern",
+    weekSchedule: null, scheduleMode: "pattern", profileLocked: false,
   };
 }
 function ytdFor(db, empId, upToMonth) {

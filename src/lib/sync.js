@@ -32,6 +32,7 @@ const employeeRow = (e, cid) => ({
   week_schedule: e.weekSchedule || null, schedule_mode: e.scheduleMode || "pattern",
   reference_name: e.referenceName || "", reference_phone: e.referencePhone || "",
   reference_relationship: e.referenceRelationship || "", avatar_path: e.avatarPath || "",
+  profile_locked: Boolean(e.profileLocked),
 });
 
 const payRow = (e, cid) => ({
@@ -251,8 +252,20 @@ export async function syncChanges(prev, next, companyId) {
       } else if (!eq(before, after)) {
         if (!eq(employeeRow(before, companyId), employeeRow(after, companyId)))
           await run("update employee", supabase.from("employees").update(employeeRow(after, companyId)).eq("id", id));
+        // A plain update, not an upsert — deliberately. An employee's pay
+        // row is always created alongside them in the "add pay record"
+        // branch above, so by the time we get here one already exists and
+        // this only ever needs to change it. That distinction matters for
+        // self-service profile edits (catch-up-migration-6.sql): an
+        // employee can UPDATE their own pay row (nin/bvn/tin/bank — the
+        // guard trigger blocks the actual pay figures) but was never given
+        // INSERT rights on employee_pay, and Postgres RLS checks the
+        // INSERT policy for an upsert's ON CONFLICT DO UPDATE path even
+        // when it's the UPDATE branch that actually runs. That silently
+        // failed every self-saved bank/KYC edit — the write never reached
+        // Supabase, so it looked saved locally but never showed up for HR.
         if (after.hasPay !== false && !eq(payRow(before, companyId), payRow(after, companyId)))
-          await run("update pay", supabase.from("employee_pay").upsert(payRow(after, companyId), { onConflict: "employee_id" }));
+          await run("update pay", supabase.from("employee_pay").update(payRow(after, companyId)).eq("employee_id", id));
       }
     }
     for (const id of Object.keys(p)) {

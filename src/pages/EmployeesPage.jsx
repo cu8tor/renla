@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, Wallet, Search, Plus, UserPlus, Copy, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert } from "lucide-react";
+import { Users, Wallet, Search, Plus, UserPlus, Copy, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Unlock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert } from "lucide-react";
 import { emptyPay } from "../features/payroll/payrollEngine.js";
 import { CHECK_KEYS, hasOverrides } from "../features/attendance/attendanceLogic.js";
 import { naira, grossOf, fmtShort, copyText } from "../lib/format.js";
@@ -8,7 +8,7 @@ import { onboardingChecklist } from "../lib/onboarding.js";
 import { Avatar, EmpAvatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
 
-function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, empById, toast }) {
+function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, setEmployeeLock, empById, toast }) {
   const [editing, setEditing] = useState(null);
   const [isNew, setIsNew] = useState(false);
   const [viewing, setViewing] = useState(null);
@@ -60,6 +60,7 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
                       <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
                         <Badge tone={e.status === "Active" ? "ok" : "accent"}>{e.status}</Badge>
                         {isHR && hasOverrides(e) && <span title="Different clock-in checks from the company setting" style={{ color: "var(--accent)", display: "flex" }}><ShieldAlert size={13} /></span>}
+                        {e.profileLocked && <span title="Profile locked — they can't edit their own details" style={{ color: "var(--muted)", display: "flex" }}><Lock size={13} /></span>}
                       </div>
                     </td>
                     {isHR && (
@@ -72,6 +73,10 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
                     <td onClick={(ev) => ev.stopPropagation()}>
                       {isHR ? (
                         <div style={{ display: "flex", gap: 6 }}>
+                          <button className="cp-mini" title={e.profileLocked ? "Unlock — let them edit their own details again" : "Lock — freeze their own details so only HR can change them"}
+                            onClick={() => setEmployeeLock(e.id, !e.profileLocked)}>
+                            {e.profileLocked ? <Unlock size={13} /> : <Lock size={13} />}
+                          </button>
                           <button className="cp-mini" onClick={() => { setEditing({ ...e }); setIsNew(false); }}><Pencil size={13} /></button>
                           <button className="cp-mini cp-mini-no" onClick={() => setConfirmDel(e)}><Trash2 size={13} /></button>
                         </div>
@@ -86,7 +91,7 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
         )}
       </Card>
 
-      {viewing && <ProfileDrawer emp={viewing} manager={empById(viewing.managerId)} isHR={isHR} isSelf={myEmp?.id === viewing.id} onClose={() => setViewing(null)} />}
+      {viewing && <ProfileDrawer emp={viewing} manager={empById(viewing.managerId)} isHR={isHR} isManager={isManager} isSelf={myEmp?.id === viewing.id} onClose={() => setViewing(null)} />}
 
       {editing && (
         <EmployeeForm
@@ -379,7 +384,7 @@ function FormGroup({ title, note, children }) {
   );
 }
 
-function ProfileDrawer({ emp, manager, isHR, isSelf, onClose }) {
+function ProfileDrawer({ emp, manager, isHR, isManager, isSelf, onClose }) {
   return (
     <div className="cp-drawer-wrap" onClick={onClose}>
       <div className="cp-drawer" onClick={(e) => e.stopPropagation()}>
@@ -396,6 +401,7 @@ function ProfileDrawer({ emp, manager, isHR, isSelf, onClose }) {
           <Badge tone={emp.status === "Active" ? "ok" : "accent"}>{emp.status}</Badge>
           <Badge tone="muted">{emp.contract}</Badge>
           {emp.marital && <Badge tone="muted">{emp.marital}</Badge>}
+          {emp.profileLocked && <Badge tone="warn"><Lock size={10} /> Profile locked</Badge>}
         </div>
         <DrawerGroup title="Contact">
           <KV icon={Mail} k="Email" v={emp.email} />
@@ -436,13 +442,17 @@ function ProfileDrawer({ emp, manager, isHR, isSelf, onClose }) {
           </DrawerGroup>
         )}
 
-        <DrawerGroup title="Leave balance">
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 4 }}>
-            <BalanceChip label="Annual" left={emp.bal.annual} />
-            <BalanceChip label="Sick" left={emp.bal.sick} />
-            <BalanceChip label="Compassionate" left={emp.bal.comp} />
-          </div>
-        </DrawerGroup>
+        {/* Leave balance is personal — HR, this person's own manager, or the
+            person themselves, not just anyone browsing the directory. */}
+        {(isHR || isManager || isSelf) && (
+          <DrawerGroup title="Leave balance">
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 4 }}>
+              <BalanceChip label="Annual" left={emp.bal.annual} />
+              <BalanceChip label="Sick" left={emp.bal.sick} />
+              <BalanceChip label="Compassionate" left={emp.bal.comp} />
+            </div>
+          </DrawerGroup>
+        )}
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import { monthKey, monthLabel } from "../lib/payrollHelpers.js";
 import { onboardingChecklist } from "../lib/onboarding.js";
 import { Avatar, EmpAvatar, Badge, Card, Stat, Section, Empty, Dot, Btn } from "../components/ui.jsx";
 import { LeaveDecideRow } from "./LeavePage.jsx";
+import { ClockCard } from "./AttendancePage.jsx";
 
 // Turns the numbers this person actually cares about right now into a
 // short, scannable status line under the greeting — "3 late today, 2
@@ -46,7 +47,7 @@ function narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLea
   return parts.length ? parts.join(" · ") : "here's where things stand.";
 }
 
-function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday }) {
+function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday, myTodayAtt, performClockIn, clockOut, locating, myDeviceOk, myDeviceRecord }) {
   const hr = new Date().getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const myLeave = myEmp ? db.leave.filter((l) => l.empId === myEmp.id) : [];
@@ -67,7 +68,7 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
         </Card>
       )}
 
-      {myChecklist && myChecklist.requiredTotal > 0 && !myChecklist.complete && (
+      {myChecklist && myChecklist.requiredTotal > 0 && !myChecklist.complete && !myEmp?.profileLocked && (
         <Card style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -86,6 +87,12 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>{greeting}, {me.name.split(" ")[0]}</h2>
         <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>{fmtLong(todayISO())} · {narrative}</p>
       </div>
+
+      {/* Clocking in shouldn't require a trip to a separate page — this is
+          the same card Attendance uses, so it's the exact same rules and
+          the exact same click either place. */}
+      <ClockCard db={db} myEmp={myEmp} myTodayAtt={myTodayAtt} performClockIn={performClockIn} clockOut={clockOut}
+        locating={locating} myDeviceOk={myDeviceOk} myDeviceRecord={myDeviceRecord} />
 
       <div className="cp-tiles">
         {isHR && <>

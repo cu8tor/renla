@@ -344,6 +344,22 @@ function AppShell() {
     toast(isNew ? "Employee added" : "Changes saved");
   };
 
+  // HR freezing an employee's own edit access — added on request, so bank/
+  // KYC/contact details can be verified once and then not change again
+  // without HR knowing. `guard_employee_self_edit`/`guard_pay_self_edit`
+  // (catch-up-migration-7.sql) reject every self-write while this is on,
+  // including document/photo uploads via the matching storage policies —
+  // this toggle is HR-only both here (isHR gates the button in
+  // EmployeesPage) and at the database level (profile_locked is one of the
+  // columns those triggers block a non-HR account from ever changing).
+  const setEmployeeLock = (id, locked) => {
+    const emp = db.employees.find((e) => e.id === id);
+    update((d) => ({ ...d, employees: d.employees.map((e) => (e.id === id ? { ...e, profileLocked: locked } : e)) }));
+    toast(locked
+      ? `${emp?.name?.split(" ")[0] || "Their"} profile is locked — they can no longer edit their own details`
+      : `${emp?.name?.split(" ")[0] || "Their"} profile is unlocked again`);
+  };
+
   const deleteEmployee = (id) => {
     update((d) => ({
       ...d,
@@ -374,12 +390,14 @@ function AppShell() {
      this is defense in depth, not the only thing stopping it. */
   const saveMyProfile = (patch) => {
     if (!myEmp) { toast("Your login isn't linked to an employee record", "warn"); return; }
+    if (myEmp.profileLocked) { toast("Your profile is locked by HR — contact HR to make changes", "warn"); return; }
     update((d) => ({ ...d, employees: d.employees.map((e) => (e.id === myEmp.id ? { ...e, ...patch } : e)) }));
     toast("Profile saved");
   };
 
   const uploadMyAvatar = async (dataUrl) => {
     if (!myEmp) return;
+    if (myEmp.profileLocked) { toast("Your profile is locked by HR — contact HR to make changes", "warn"); return; }
     try {
       const path = await uploadAvatar(dataUrl, profile.companyId, myEmp.id);
       update((d) => ({ ...d, employees: d.employees.map((e) => (e.id === myEmp.id ? { ...e, avatarPath: path } : e)) }));
@@ -389,6 +407,7 @@ function AppShell() {
 
   const uploadMyDocument = async (file, kind, name) => {
     if (!myEmp) return;
+    if (myEmp.profileLocked) { toast("Your profile is locked by HR — contact HR to make changes", "warn"); return; }
     try {
       const path = await uploadEmployeeDocument(file, profile.companyId, myEmp.id);
       update((d) => ({ ...d, employeeDocs: [{ id: uid("edoc"), empId: myEmp.id, kind, name: name || file.name, filePath: path, uploaded: todayISO() }, ...d.employeeDocs] }));
@@ -398,6 +417,7 @@ function AppShell() {
 
   const deleteMyDocument = (docId) => {
     if (!myEmp) return;
+    if (myEmp.profileLocked) { toast("Your profile is locked by HR — contact HR to make changes", "warn"); return; }
     update((d) => ({ ...d, employeeDocs: d.employeeDocs.filter((x) => x.id !== docId) }));
     toast("Document removed", "danger");
   };
@@ -959,10 +979,10 @@ function AppShell() {
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={
-                  <DashboardPage {...{ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday }} />
+                  <DashboardPage {...{ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday, myTodayAtt, performClockIn, clockOut, locating, myDeviceOk, myDeviceRecord }} />
                 } />
                 <Route path="/employees" element={
-                  <EmployeesPage {...{ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, empById, toast }} />
+                  <EmployeesPage {...{ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, setEmployeeLock, empById, toast }} />
                 } />
                 <Route path="/attendance" element={
                   <AttendancePage {...{ db, isHR, isManager, myTeam, myEmp, empById, myTodayAtt, performClockIn, clockOut, addManualAttendance, deleteAttendance, locating, localDevice, myDeviceRecord, myDeviceOk, requestDevice, reviewAttendance, answerCheck, excuseCheck, recordMiss, companyId: profile.companyId }} />
