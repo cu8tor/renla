@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer } from "lucide-react";
+import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer, Building2, KeyRound, ChevronLeft } from "lucide-react";
 import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany, requestPasswordReset, updatePassword } from "../lib/supabase.js";
 import { Card, Btn, Field, Dot } from "../components/ui.jsx";
 import { StyleTag } from "../components/StyleTag.jsx";
@@ -130,7 +130,7 @@ function AuthScreen({ theme, dark, setDark, linkError }) {
     <AuthShell theme={theme} dark={dark} setDark={setDark}
       badge={mode === "in" ? "Sign in" : "Create an account"}
       title={mode === "in" ? "Welcome back." : "Let's get you set up."}
-      blurb={mode === "in" ? "Use the email and password your HR team gave you." : "Create your login first — you'll name your company on the next screen."}>
+      blurb={mode === "in" ? "Use the email and password your HR team gave you." : "Create your login first — next you'll choose whether to set up a new company or join one you've already been invited to (with a staff code from your HR team)."}>
       <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 14 }}>
         <Field label="Email">
           <input className="cp-input" autoFocus type="email" autoComplete="email"
@@ -217,7 +217,13 @@ function NewCompany({ theme, dark, setDark, profile }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [joinId, setJoinId] = useState("");
-  const [tab, setTab] = useState("create");
+  // Was previously a tab bar defaulting to "create," which made it easy to
+  // miss "Join one" entirely — someone with a staff code from HR could land
+  // here and just start typing into the already-active "create" tab without
+  // ever noticing there was another option. Now neither path is picked for
+  // them: this starts at null (an explicit either/or choice, no default)
+  // and only shows a form once they've actually chosen one.
+  const [choice, setChoice] = useState(null); // null | "create" | "join"
 
   const create = async () => {
     if (!f.company.trim() || !f.name.trim()) { setErr("Fill in your company name and your own name."); return; }
@@ -233,25 +239,46 @@ function NewCompany({ theme, dark, setDark, profile }) {
     catch (e) { setErr("That code wasn't recognised — check it with your HR team."); setBusy(false); }
   };
 
+  const back = () => { setChoice(null); setErr(""); };
+
+  if (choice === null) {
+    return (
+      <AuthShell theme={theme} dark={dark} setDark={setDark} badge={profile.email}
+        title="One more step" blurb="Have a staff code from your HR team? You're joining a company they've already set up. Otherwise, you're setting one up for the first time.">
+        <div className="cp-choice-row" style={{ marginTop: 22 }}>
+          <button className="cp-choice-card" onClick={() => setChoice("create")}>
+            <span className="cp-choice-ic"><Building2 size={19} /></span>
+            <span className="cp-choice-title">Set up a new company</span>
+            <span className="cp-choice-desc">You're the first person here — you'll be the HR Admin, with access to everything.</span>
+          </button>
+          <button className="cp-choice-card" onClick={() => setChoice("join")}>
+            <span className="cp-choice-ic"><KeyRound size={19} /></span>
+            <span className="cp-choice-title">Join a company</span>
+            <span className="cp-choice-desc">Your HR team sent you a staff code — use it to join the company they've already set up.</span>
+          </button>
+        </div>
+        <div style={{ marginTop: 22 }}><button className="cp-link" onClick={() => sbSignOut()}>Sign out</button></div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell theme={theme} dark={dark} setDark={setDark} badge={profile.email}
-      title="One more step" blurb="Set up a new company, or join one you've been invited to.">
-      <div className="cp-tabs" style={{ marginTop: 20 }}>
-        <button className={"cp-tab" + (tab === "create" ? " active" : "")} onClick={() => { setTab("create"); setErr(""); }}>Create a company</button>
-        <button className={"cp-tab" + (tab === "join" ? " active" : "")} onClick={() => { setTab("join"); setErr(""); }}>Join one</button>
-      </div>
-
-      {tab === "create" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      title={choice === "create" ? "Set up your company" : "Join your company"}
+      blurb={choice === "create" ? "You'll be the HR Admin, with access to everything." : "Your HR team will send you this code."}>
+      <button className="cp-link" style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 18, fontSize: 12.5 }} onClick={back}>
+        <ChevronLeft size={13} /> Choose differently
+      </button>
+      {choice === "create" ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
           <Field label="Company name"><input className="cp-input" autoFocus value={f.company} onChange={(e) => setF({ ...f, company: e.target.value })} placeholder="e.g. Ade Apparel Ltd" /></Field>
           <Field label="Your full name"><input className="cp-input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
           <Field label="Your job title"><input className="cp-input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Founder" /></Field>
           {err && <div style={{ fontSize: 13, color: "var(--danger)" }}>{err}</div>}
           <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={create}>{busy ? "Setting up…" : "Create company"}</Btn></div>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>You'll be the HR Admin, with access to everything.</div>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>
           <Field label="Staff code" hint="Your HR team will send you this">
             <input className="cp-input" autoFocus value={joinId} onChange={(e) => setJoinId(e.target.value)} placeholder="Paste the code here" />
           </Field>
