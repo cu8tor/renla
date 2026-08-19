@@ -39,6 +39,7 @@ import {
 
 import { LIGHT, DARK } from "./theme.js";
 import { getLocalDevice } from "./lib/device.js";
+import { savePendingAttendance, mergePendingAttendance } from "./lib/offlineQueue.js";
 import { uid, parseD, iso, todayISO, startOfToday, daysInclusive, nextBirthday } from "./lib/format.js";
 import { distLabel, getPosition, locErrLabel, stampLocation } from "./lib/geo.js";
 import { fetchIP, evaluateChecks, CHECK_LABEL, pruneSelfies } from "./lib/presence.js";
@@ -90,6 +91,7 @@ function AppShell() {
   const [toasts, setToasts] = useState([]);
   const [search, setSearch] = useState("");
   const [saveError, setSaveError] = useState(false);
+  const [pendingSync, setPendingSync] = useState(false); // local changes exist that Supabase hasn't confirmed yet
   const [locating, setLocating] = useState(false);
   const [localDevice, setLocalDevice] = useState(null);
   const [profile, setProfile] = useState(null);      // signed-in user + role
@@ -141,9 +143,17 @@ function AppShell() {
           const ws = await loadWorkspace(p);
           if (!alive) return;
           const n = normalizeDb(ws);
-          dbRef.current = n;
+          // The server's copy is the sync baseline...
           lastSyncedRef.current = n;
-          setDb(n);
+          // ...but if a clock-in/out from this device never made it to
+          // Supabase before the app was closed or reloaded (see
+          // offlineQueue.js), it's still sitting in localStorage — bring
+          // it back into local state now so it isn't lost, and so the
+          // dbRef/lastSyncedRef mismatch this creates gets picked up by
+          // the "resume any pending sync" effect below and retried.
+          const merged = mergePendingAttendance(n, p.companyId, p.employeeId);
+          dbRef.current = merged;
+          setDb(merged);
         } else {
           dbRef.current = null;
           lastSyncedRef.current = null;
@@ -196,9 +206,9 @@ function AppShell() {
     if (!profile || profile.noCompany) return;
     try {
       const ws = normalizeDb(await loadWorkspace(profile));
-      dbRef.current = ws;
       lastSyncedRef.current = ws;
-      setDb(ws);
+      dbRef.current = mergePendingAttendance(ws, profile.companyId, profile.employeeId);
+      setDb(dbRef.current);
     } catch (e) { toast(e.message || "Couldn't refresh", "danger"); }
   }, [profile]);
 
@@ -218,6 +228,30 @@ function AppShell() {
      error shown. This version can't drop a change that way: whatever
      hasn't reached lastSyncedRef yet always gets picked up by the next
      sync pass, either immediately or right after the current one finishes. */
+  // Mirrors the current employee's not-yet-confirmed attendance rows to
+  // localStorage (see offlineQueue.js) and updates the header's pending-
+  // sync indicator. Called right after every local write and again once
+  // a sync attempt resolves, so both survive a reload and stay visible
+  // while offline. Reads refs directly rather than closing over `db`/
+  // `profile` state so it's always accurate regardless of when it's
+  // called from.
+  const syncPendingCache = () => {
+    const emp = profileRef.current?.employeeId;
+    const cid = profileRef.current?.companyId;
+    const cur = dbRef.current;
+    const synced = lastSyncedRef.current;
+    if (!emp || !cid || !cur) { setPendingSync(false); return; }
+    const mine = (arr) => (arr || []).filter((a) => a.empId === emp);
+    const curRows = mine(cur.attendance);
+    const syncedRows = mine(synced?.attendance);
+    const pendingRows = curRows.filter((a) => {
+      const s = syncedRows.find((x) => x.id === a.id);
+      return !s || JSON.stringify(s) !== JSON.stringify(a);
+    });
+    savePendingAttendance(cid, emp, pendingRows);
+    setPendingSync(pendingRows.length > 0);
+  };
+
   const runSync = useCallback(() => {
     if (!configured || !profile?.companyId || syncing.current) return;
     const from = lastSyncedRef.current;
@@ -251,8 +285,9 @@ function AppShell() {
         } else {
           setSaveError(false);
         }
+        syncPendingCache();
       })
-      .catch((e) => { setSaveError(true); toast(e.message || "Couldn't save", "danger"); })
+      .catch((e) => { setSaveError(true); toast(e.message || "Couldn't save", "danger"); syncPendingCache(); })
       .finally(() => {
         syncing.current = false;
         // More local changes may have landed while this sync was running —
@@ -279,7 +314,27 @@ function AppShell() {
     next = { ...next, attendance: pruneSelfies(next.attendance), checks: pruneSelfies(next.checks) };
     dbRef.current = next;
     setDb(next);
+    syncPendingCache();
     runSync();
+  }, [runSync]);
+
+  // Picks back up any sync left outstanding after boot merges in a
+  // pending clock-in from a previous offline session (see refresh()
+  // above) — without this, a change that arrived via the cache rather
+  // than a live update() call would just sit there until something
+  // unrelated happened to trigger a sync.
+  useEffect(() => {
+    if (dbRef.current && lastSyncedRef.current && dbRef.current !== lastSyncedRef.current) runSync();
+  }, [db, runSync]);
+
+  // Retries whenever the browser thinks connectivity is back, or the tab
+  // regains focus (a phone waking back up doesn't always fire "online"
+  // reliably) — otherwise an offline clock-in only syncs once the person
+  // happens to make some other change.
+  useEffect(() => {
+    window.addEventListener("online", runSync);
+    window.addEventListener("focus", runSync);
+    return () => { window.removeEventListener("online", runSync); window.removeEventListener("focus", runSync); };
   }, [runSync]);
 
   /* ---------- derived ---------- */
@@ -970,6 +1025,7 @@ function AppShell() {
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {saveError && <span title="Changes aren't saving" style={{ color: "var(--danger)", display: "flex" }}><AlertCircle size={17} /></span>}
+              {!saveError && pendingSync && <span title="You're offline — this will sync once you're back online" style={{ color: "var(--warn)", display: "flex" }}><Wifi size={17} /></span>}
               <button className="cp-icon-btn" onClick={() => setDark(!dark)} title="Toggle theme">{dark ? <Sun size={16} /> : <Moon size={16} />}</button>
             </div>
           </header>
