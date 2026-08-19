@@ -260,6 +260,24 @@ function AppShell() {
     syncing.current = true;
     syncChanges(from, to, profile.companyId)
       .then(({ patches, errors }) => {
+        // Supabase's client resolves with { error } on a network failure —
+        // it doesn't reject — so a sync attempted while genuinely offline
+        // still lands here, in the success branch, not in .catch() below.
+        // Previously that meant `lastSyncedRef.current = to` advanced
+        // regardless, permanently treating that failed batch as "handled":
+        // the next diff would show nothing new to send, so a clock-in
+        // attempted offline was quietly abandoned rather than retried once
+        // reconnected — the whole point of this session's offline work.
+        // When nothing in the attempt was actually confirmed (no patches
+        // came back) and it looks like we're offline, leave the baseline
+        // where it was so the exact same diff gets retried whole next time,
+        // instead of advancing past a batch nothing in it actually reached.
+        const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+        if (errors.length && !patches.length && offline) {
+          setSaveError(false); // not a real failure — the pending-sync indicator already covers "not synced yet"
+          syncPendingCache();
+          return;
+        }
         // Whatever we just attempted is now the baseline for the next diff,
         // whether or not every row in it succeeded — see the errors branch
         // below for why rows that failed still need a human to notice.
@@ -292,7 +310,12 @@ function AppShell() {
         syncing.current = false;
         // More local changes may have landed while this sync was running —
         // send them now instead of waiting for the next unrelated update().
-        if (dbRef.current !== lastSyncedRef.current) runSync();
+        // Skipped while offline so a still-diverged ref (expected — see the
+        // offline branch above) doesn't chain into a tight retry loop with
+        // no cooldown; the online/focus listeners below pick it back up
+        // once connectivity genuinely returns.
+        const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+        if (!offline && dbRef.current !== lastSyncedRef.current) runSync();
       });
   }, [profile, toast]);
 

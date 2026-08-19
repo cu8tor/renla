@@ -176,15 +176,34 @@ export async function syncChanges(prev, next, companyId) {
     if (error) errors.push(`${label}: ${error.message}`);
   };
 
+  // A failed upload attempt while offline shouldn't surface as an error
+  // toast every single retry (the pending-sync indicator already covers
+  // that) — only a failure that happens while genuinely online is worth
+  // interrupting the person for. navigator.onLine isn't a perfect signal,
+  // but the data-preserving fix below doesn't depend on it being right —
+  // it only decides whether to also show a toast.
+  const looksOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+
   /* --- selfies: a freshly taken photo arrives as a data URL. Put it in
-         storage, then store only the path on the row. --- */
+         storage, then store only the path on the row. On failure, leave
+         the data URL exactly as it was rather than clearing it — this
+         used to unconditionally reset it to "", which meant a photo
+         taken while offline (or during any transient network hiccup) was
+         permanently discarded on the very first failed sync attempt: the
+         clock-in/check itself would go on to sync successfully moments
+         later once reconnected, just silently missing its photo forever,
+         with no further retry ever attempted (a cleared field no longer
+         looks like a pending upload). Leaving it untouched means the next
+         sync attempt — including the ones this session's offline-retry
+         listeners now trigger automatically on reconnect — tries again
+         with the same photo, exactly like every other offline change. --- */
   for (const c of next.checks || []) {
     if (c.selfie && c.selfie.startsWith("data:")) {
       try {
         const path = await uploadSelfie(c.selfie, companyId, c.empId, c.date + "-" + c.dueTime.replace(":", ""));
         patches.push({ collection: "checks", id: c.id, changes: { selfie: path } });
         c.selfie = path;
-      } catch (e) { errors.push(`check photo: ${e.message}`); c.selfie = ""; }
+      } catch (e) { if (!looksOffline) errors.push(`check photo: ${e.message}`); }
     }
   }
   for (const a of next.attendance || []) {
@@ -194,8 +213,7 @@ export async function syncChanges(prev, next, companyId) {
         patches.push({ collection: "attendance", id: a.id, changes: { selfie: path } });
         a.selfie = path; // so the row we write below carries the path
       } catch (e) {
-        errors.push(`selfie upload: ${e.message}`);
-        a.selfie = "";
+        if (!looksOffline) errors.push(`selfie upload: ${e.message}`);
       }
     }
   }
