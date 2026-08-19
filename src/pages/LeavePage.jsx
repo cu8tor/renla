@@ -3,7 +3,7 @@ import { Plus, Check, X, MapPin, ShieldCheck, Info, Timer } from "lucide-react";
 import { nowHM, hmToMin, durLabel } from "../features/attendance/attendanceLogic.js";
 import { parseD, todayISO, fmtShort, daysInclusive } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
-import { Avatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { Avatar, EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
 
 const statusMeta = (s) => s === "approved" ? { tone: "ok", label: "Approved" }
   : s === "declined" ? { tone: "danger", label: "Declined" }
@@ -13,7 +13,7 @@ const statusMeta = (s) => s === "approved" ? { tone: "ok", label: "Approved" }
 function LeaveDecideRow({ l, emp, onDecide }) {
   return (
     <div className="cp-leaverow">
-      <Avatar name={emp?.name || "?"} size={36} />
+      <EmpAvatar emp={emp} size={36} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontWeight: 600, fontSize: 13.5 }}>{emp?.name || "Unknown"}</span>
@@ -33,7 +33,7 @@ function LeaveInfoRow({ l, emp, showName }) {
   const m = statusMeta(l.status);
   return (
     <div className="cp-leaverow">
-      {showName && emp && <Avatar name={emp.name} size={34} />}
+      {showName && emp && <EmpAvatar emp={emp} size={34} />}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {showName && emp && <span style={{ fontWeight: 600, fontSize: 13.5 }}>{emp.name}</span>}
@@ -59,7 +59,7 @@ function PermRow({ p, emp, showName, canAct, onDecide }) {
   const isLate = p.kind === "late";
   return (
     <div className="cp-leaverow" style={{ alignItems: "flex-start" }}>
-      {showName && emp && <Avatar name={emp.name} size={34} />}
+      {showName && emp && <EmpAvatar emp={emp} size={34} />}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {showName && emp && <span style={{ fontWeight: 600, fontSize: 13.5 }}>{emp.name}</span>}

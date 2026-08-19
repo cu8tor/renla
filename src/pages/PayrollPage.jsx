@@ -4,7 +4,7 @@ import { amountInWords } from "../features/payroll/payrollEngine.js";
 import { durLabel } from "../features/attendance/attendanceLogic.js";
 import { naira, fmtShort } from "../lib/format.js";
 import { monthKey, monthLabel, monthOptions, ytdFor } from "../lib/payrollHelpers.js";
-import { Avatar, Badge, Card, Btn, Stat, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { Avatar, EmpAvatar, Badge, Card, Btn, Stat, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
 
 function PayRow({ label, value, bold, mono = true }) {
   return (
@@ -300,7 +300,7 @@ function PayrollPage({ db, isHR, isManager, myTeam, myEmp, empById, generatePayr
                         if (!e) return null;
                         return (
                           <tr key={ln.empId}>
-                            <td><div style={{ display: "flex", alignItems: "center", gap: 10 }}><Avatar name={e.name} size={30} /><div><div style={{ fontWeight: 600, fontSize: 13 }}>{e.name}</div><div style={{ fontSize: 11.5, color: "var(--muted)" }}>{ln.calc.absentDays > 0 ? <span style={{ color: "var(--warn)", fontWeight: 600 }}>{ln.calc.absentDays} days absent</span> : ln.calc.lateDays > 0 ? <span style={{ color: "var(--warn)" }}>{ln.calc.lateDays} late</span> : (e.title || "—")}</div></div></div></td>
+                            <td><div style={{ display: "flex", alignItems: "center", gap: 10 }}><EmpAvatar emp={e} size={30} /><div><div style={{ fontWeight: 600, fontSize: 13 }}>{e.name}</div><div style={{ fontSize: 11.5, color: "var(--muted)" }}>{ln.calc.absentDays > 0 ? <span style={{ color: "var(--warn)", fontWeight: 600 }}>{ln.calc.absentDays} days absent</span> : ln.calc.lateDays > 0 ? <span style={{ color: "var(--warn)" }}>{ln.calc.lateDays} late</span> : (e.title || "—")}</div></div></div></td>
                             <td className="cp-num">{naira(ln.calc.gross)}</td>
                             <td className="cp-num">{naira(ln.calc.deductions.paye)}</td>
                             <td className="cp-num">{naira(ln.calc.deductions.pension)}</td>
@@ -336,7 +336,7 @@ function PayrollPage({ db, isHR, isManager, myTeam, myEmp, empById, generatePayr
                     const e = empById(l.empId);
                     return (
                       <div key={l.id} className="cp-leaverow">
-                        <Avatar name={e?.name || "?"} size={36} />
+                        <EmpAvatar emp={e} size={36} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                             <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e?.name}</span>
@@ -372,7 +372,7 @@ function PayrollPage({ db, isHR, isManager, myTeam, myEmp, empById, generatePayr
                       <div key={l.id} style={{ border: "1px solid var(--line)", borderRadius: 11, padding: 14, background: "var(--card2)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                            <Avatar name={e?.name || "?"} size={32} />
+                            <EmpAvatar emp={e} size={32} />
                             <div>
                               <div style={{ fontWeight: 600, fontSize: 13.5 }}>{e?.name}</div>
                               <div style={{ fontSize: 12, color: "var(--muted)" }}>{l.type} · {naira(l.monthly)}/month</div>

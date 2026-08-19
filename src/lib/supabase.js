@@ -157,7 +157,7 @@ export async function loadWorkspace(profile) {
   const cutoff = windowCutoffISO();
 
   const [company, settings, employees, pay, departments, branches, leave, permissions, checks, attendance,
-         shifts, sites, devices, loans, news, docs, holidays, payruns, profiles] =
+         shifts, sites, devices, loans, news, docs, holidays, payruns, profiles, employeeDocs] =
     await Promise.all([
       supabase.from("companies").select("*").eq("id", cid).single(),
       supabase.from("company_settings").select("*").eq("company_id", cid).single(),
@@ -178,6 +178,7 @@ export async function loadWorkspace(profile) {
       q("holidays", { col: "holiday_date" }),
       q("payruns", { col: "month", asc: false }),
       supabase.from("profiles").select("id, employee_id, full_name, role").eq("company_id", cid),
+      q("employee_documents", { col: "uploaded_at", asc: false }),
     ]);
 
   // Previously only 5 of these 19 queries were checked for an error — a
@@ -188,7 +189,7 @@ export async function loadWorkspace(profile) {
   // case was employee_pay: a failed fetch there zeroes every employee's pay
   // fields with no signal to HR that anything went wrong.
   const failed = [company, settings, employees, pay, departments, branches, leave, permissions, checks,
-    attendance, shifts, sites, devices, loans, news, docs, holidays, payruns, profiles].find((r) => r.error);
+    attendance, shifts, sites, devices, loans, news, docs, holidays, payruns, profiles, employeeDocs].find((r) => r.error);
   if (failed) throw failed.error;
 
   const payById = Object.fromEntries((pay.data || []).map((p) => [p.employee_id, p]));
@@ -200,6 +201,7 @@ export async function loadWorkspace(profile) {
     },
     work: settings.data.work,
     payroll: settings.data.payroll,
+    onboarding: settings.data.onboarding || {},
     employees: (employees.data || []).map((r) => {
       const p = payById[r.id];
       return {
@@ -209,6 +211,8 @@ export async function loadWorkspace(profile) {
         managerId: r.manager_id || "", joined: r.joined || "",
         contract: r.contract || "Full-time", status: r.status || "Active",
         kin: r.next_of_kin || "", emergency: r.emergency || "",
+        referenceName: r.reference_name || "", referencePhone: r.reference_phone || "",
+        referenceRelationship: r.reference_relationship || "", avatarPath: r.avatar_path || "",
         bal: r.balances || { annual: 20, sick: 10, comp: 5 },
         checkPrefs: r.check_prefs || {},
         branchId: r.branch_id || "", shiftId: r.shift_id || "", contractEnd: r.contract_end || "",
@@ -281,6 +285,10 @@ export async function loadWorkspace(profile) {
     users: (profiles.data || []).map((p) => ({
       id: p.id, employeeId: p.employee_id, name: p.full_name, role: p.role,
     })),
+    employeeDocs: (employeeDocs.data || []).map((d) => ({
+      id: d.id, empId: d.employee_id, kind: d.kind, name: d.name,
+      filePath: d.file_path, uploaded: d.uploaded_at,
+    })),
   };
 }
 
@@ -334,6 +342,35 @@ export async function uploadDocument(file, companyId) {
   const safe = file.name.replace(/[^\w.\-]/g, "_");
   const path = `${companyId}/${Date.now()}-${safe}`;
   const { error } = await supabase.storage.from("documents").upload(path, file);
+  if (error) throw error;
+  return path;
+}
+
+/* Profile picture. Anyone in the company can upload their own (see the
+   avatars_write storage policy in catch-up-migration-6.sql) — HR can set
+   one for someone else too. */
+export async function uploadAvatar(dataUrl, companyId, employeeId) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const path = `${companyId}/${employeeId}/avatar-${Date.now()}.jpg`;
+  const { error } = await supabase.storage
+    .from("avatars")
+    .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+  if (error) throw error;
+  return path;
+}
+
+export async function removeFiles(bucket, paths) {
+  if (!paths || !paths.length) return { error: null };
+  return supabase.storage.from(bucket).remove(paths);
+}
+
+/* KYC/ID/reference-letter uploads for the self-service onboarding
+   profile — a plain browser File this time (a document, not a captured
+   photo), unlike uploadSelfie/uploadAvatar which take a data URL. */
+export async function uploadEmployeeDocument(file, companyId, employeeId) {
+  const safe = file.name.replace(/[^\w.\-]/g, "_");
+  const path = `${companyId}/${employeeId}/${Date.now()}-${safe}`;
+  const { error } = await supabase.storage.from("employee-docs").upload(path, file);
   if (error) throw error;
   return path;
 }

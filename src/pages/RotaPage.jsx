@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CalendarRange, Plus, X, ChevronRight, Users2, Info, Timer, ChevronLeft, Copy } from "lucide-react";
 import { DAYS, hmToMin, durLabel, addDays, mondayOf, shiftMins } from "../features/attendance/attendanceLogic.js";
 import { parseD, iso, todayISO, fmtShort, fmtLong } from "../lib/format.js";
-import { Avatar, Badge, Card, Btn, Stat, Field, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { Avatar, EmpAvatar, Badge, Card, Btn, Stat, Field, PageHead, Empty, Modal } from "../components/ui.jsx";
 
 function RotaPage({ db, isHR, isManager, myTeam, myEmp, empById, addShift, deleteShift, copyWeek }) {
   const [offset, setOffset] = useState(0);
@@ -59,7 +59,7 @@ function RotaPage({ db, isHR, isManager, myTeam, myEmp, empById, addShift, delet
                   const mins = dayKeys.reduce((s, k) => s + shiftsFor(p.id, k).reduce((t, sh) => t + shiftMins(sh), 0), 0);
                   return (
                     <tr key={p.id}>
-                      <td><div style={{ display: "flex", alignItems: "center", gap: 10 }}><Avatar name={p.name} size={30} /><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div></div></td>
+                      <td><div style={{ display: "flex", alignItems: "center", gap: 10 }}><EmpAvatar emp={p} size={30} /><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div></div></td>
                       {dayKeys.map((k) => {
                         const list = shiftsFor(p.id, k);
                         const onLeave = db.leave.some((l) => l.empId === p.id && l.status === "approved" && parseD(l.from) <= parseD(k) && parseD(l.to) >= parseD(k));

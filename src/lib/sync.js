@@ -11,7 +11,7 @@
    sends exactly that one row.
    ===================================================================== */
 
-import { supabase, uploadSelfie, deleteSelfies } from "./supabase.js";
+import { supabase, uploadSelfie, deleteSelfies, removeFiles } from "./supabase.js";
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const byId = (list = []) => Object.fromEntries(list.map((x) => [x.id, x]));
@@ -30,6 +30,8 @@ const employeeRow = (e, cid) => ({
   emergency: e.emergency || "", balances: e.bal || {}, check_prefs: e.checkPrefs || {},
   branch_id: e.branchId || null, shift_id: e.shiftId || "", contract_end: e.contractEnd || null,
   week_schedule: e.weekSchedule || null, schedule_mode: e.scheduleMode || "pattern",
+  reference_name: e.referenceName || "", reference_phone: e.referencePhone || "",
+  reference_relationship: e.referenceRelationship || "", avatar_path: e.avatarPath || "",
 });
 
 const payRow = (e, cid) => ({
@@ -151,6 +153,13 @@ const MAP = {
       id: r.id, company_id: cid, month: r.month, status: r.status, lines: r.lines || [],
     }),
   },
+  employeeDocs: {
+    table: "employee_documents",
+    row: (d, cid) => ({
+      id: d.id, company_id: cid, employee_id: d.empId, kind: d.kind || "other",
+      name: d.name || "", file_path: d.filePath, uploaded_at: d.uploaded,
+    }),
+  },
 };
 
 /* ---------------------------------------------------------------------
@@ -211,6 +220,26 @@ export async function syncChanges(prev, next, companyId) {
     if (stalePaths.length) await run("delete old selfie photos", deleteSelfies(stalePaths));
   }
 
+  /* --- same idea as the selfie cleanup above, for profile pictures and
+         onboarding documents: delete the actual file once nothing in the
+         synced state points at it anymore. */
+  {
+    const staleAvatars = [];
+    const p = byId(prev.employees);
+    for (const after of next.employees || []) {
+      const before = p[after.id];
+      if (before?.avatarPath && before.avatarPath !== after.avatarPath && !before.avatarPath.startsWith("data:")) {
+        staleAvatars.push(before.avatarPath);
+      }
+    }
+    if (staleAvatars.length) await run("delete old avatar photos", removeFiles("avatars", staleAvatars));
+
+    const removedDocPaths = (prev.employeeDocs || [])
+      .filter((before) => !(next.employeeDocs || []).some((after) => after.id === before.id))
+      .map((d) => d.filePath).filter(Boolean);
+    if (removedDocPaths.length) await run("delete removed documents", removeFiles("employee-docs", removedDocPaths));
+  }
+
   /* --- employees (plus their separate pay record) --- */
   {
     const p = byId(prev.employees), n = byId(next.employees);
@@ -261,9 +290,9 @@ export async function syncChanges(prev, next, companyId) {
   }
 
   /* --- settings and company details --- */
-  if (!eq(prev.work, next.work) || !eq(prev.payroll, next.payroll)) {
+  if (!eq(prev.work, next.work) || !eq(prev.payroll, next.payroll) || !eq(prev.onboarding, next.onboarding)) {
     await run("save settings", supabase.from("company_settings")
-      .update({ work: next.work, payroll: next.payroll, updated_at: new Date().toISOString() })
+      .update({ work: next.work, payroll: next.payroll, onboarding: next.onboarding, updated_at: new Date().toISOString() })
       .eq("company_id", companyId));
   }
   if (!eq(prev.company, next.company)) {

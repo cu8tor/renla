@@ -6,13 +6,26 @@ import { durLabel, crossesMidnight, minutesBetween } from "../features/attendanc
 import { uid, fmtShort, fmtLong, copyText } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
 import { DEFAULT_WORK } from "../lib/presence.js";
-import { Avatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { DEFAULT_ONBOARDING } from "../lib/onboarding.js";
+import { Avatar, EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
 import { Payslip } from "./PayrollPage.jsx";
 
-function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload }) {
+const ONBOARDING_FIELDS = [
+  { key: "requireEmergency", label: "Emergency contact" },
+  { key: "requireKin", label: "Next of kin" },
+  { key: "requireReference", label: "A named reference" },
+  { key: "requireBank", label: "Bank account details" },
+  { key: "requireNin", label: "NIN" },
+  { key: "requireBvn", label: "BVN" },
+  { key: "requirePhoto", label: "Profile picture" },
+  { key: "requireIdDocument", label: "An ID or reference document" },
+];
+
+function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements }) {
   const [name, setName] = useState(db.company.name);
   const [work, setWork] = useState({ ...DEFAULT_WORK, ...(db.work || {}) });
+  const [onboarding, setOnboarding] = useState({ ...DEFAULT_ONBOARDING, ...(db.onboarding || {}) });
   const [site, setSite] = useState({ name: "", lat: "", lng: "", radius: "200" });
   const [pr, setPr] = useState({ ...DEFAULT_PAYROLL, ...(db.payroll || {}) });
   const [picking, setPicking] = useState(false);
@@ -71,6 +84,25 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
             )}
             <div style={{ marginTop: 14 }}>
               <Btn onClick={() => { update((d) => ({ ...d, work })); toast("Working hours saved"); }}>Save working hours</Btn>
+            </div>
+          </Section>
+        </Card>
+
+        <Card>
+          <Section title="Employee onboarding">
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
+              Tick what every new hire has to fill in on their own <b>My profile</b> page before they're considered fully onboarded. Off by default — turning one on doesn't retroactively flag anyone who's been here a while, it just starts being asked of new starters and anyone who hasn't filled it in yet.
+            </div>
+            <div className="cp-form-grid">
+              {ONBOARDING_FIELDS.map(({ key, label }) => (
+                <label key={key} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 9, cursor: "pointer" }}>
+                  <input type="checkbox" checked={Boolean(onboarding[key])} onChange={(e) => setOnboarding({ ...onboarding, [key]: e.target.checked })} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <Btn onClick={() => { saveOnboardingRequirements(onboarding); toast("Onboarding requirements saved"); }}>Save requirements</Btn>
             </div>
           </Section>
         </Card>
@@ -491,7 +523,7 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
                 const linked = db.users.find((u) => u.employeeId === e.id);
                 return (
                   <div key={e.id} className="cp-leaverow">
-                    <Avatar name={e.name} size={34} />
+                    <EmpAvatar emp={e} size={34} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13.5, fontWeight: 600 }}>{e.name}</div>
                       <div style={{ fontSize: 12, color: "var(--muted)" }}>{e.title || "—"}</div>

@@ -3,6 +3,7 @@ import { pad2 } from "../features/attendance/attendanceLogic.js";
 import { uid, todayISO } from "./format.js";
 import { DEFAULT_WORK } from "./presence.js";
 import { blankBalances } from "../features/insights/monthInsights.js";
+import { DEFAULT_ONBOARDING } from "./onboarding.js";
 
 const monthKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 const monthLabel = (k) => { const [y, m] = k.split("-").map(Number); return `${["January","February","March","April","May","June","July","August","September","October","November","December"][m - 1]} ${y}`; };
@@ -27,8 +28,12 @@ function normalizeDb(d) {
     loans: d.loans || [],
     payruns: d.payruns || [],
     payroll: { ...DEFAULT_PAYROLL, ...(d.payroll || {}) },
+    onboarding: { ...DEFAULT_ONBOARDING, ...(d.onboarding || {}) },
+    employeeDocs: d.employeeDocs || [],
     employees: (d.employees || []).map((e) =>
-      e.pay ? { ...e, checkPrefs: e.checkPrefs || {} } : { ...e, bvn: e.bvn || "", checkPrefs: e.checkPrefs || {}, pay: { ...emptyPay(), basic: Number(e.salary) || 0, annualRent: 0 } }
+      e.pay
+        ? { ...e, checkPrefs: e.checkPrefs || {}, referenceName: e.referenceName || "", referencePhone: e.referencePhone || "", referenceRelationship: e.referenceRelationship || "", avatarPath: e.avatarPath || "" }
+        : { ...e, bvn: e.bvn || "", checkPrefs: e.checkPrefs || {}, pay: { ...emptyPay(), basic: Number(e.salary) || 0, annualRent: 0 }, referenceName: e.referenceName || "", referencePhone: e.referencePhone || "", referenceRelationship: e.referenceRelationship || "", avatarPath: e.avatarPath || "" }
     ),
     work: { ...DEFAULT_WORK, ...(d.work || {}) },
   };
@@ -38,7 +43,8 @@ function emptyEmployee() {
     id: uid("emp"), name: "", email: "", phone: "", dob: "", gender: "", marital: "", area: "",
     dept: "", title: "", managerId: "", joined: todayISO(), contract: "Full-time", status: "Active",
     salary: 0, nin: "", bvn: "", tin: "", pension: "", bank: "", acctName: "", acct: "", pay: emptyPay(),
-    kin: "", emergency: "", bal: blankBalances(), checkPrefs: {}, branchId: "", shiftId: "", contractEnd: "",
+    kin: "", emergency: "", referenceName: "", referencePhone: "", referenceRelationship: "", avatarPath: "",
+    bal: blankBalances(), checkPrefs: {}, branchId: "", shiftId: "", contractEnd: "",
     weekSchedule: null, scheduleMode: "pattern",
   };
 }

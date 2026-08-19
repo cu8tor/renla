@@ -1,10 +1,11 @@
-import { Users, CalendarDays, Clock3, ChevronRight, Cake, Pin, PartyPopper, Users2, BadgeCheck, UserPlus, Timer, AlertTriangle, ShieldAlert, Banknote } from "lucide-react";
+import { Users, CalendarDays, Clock3, ChevronRight, Cake, Pin, PartyPopper, Users2, BadgeCheck, UserPlus, Timer, AlertTriangle, ShieldAlert, Banknote, PartyPopper as Confetti, ClipboardCheck } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, PieChart, Pie } from "recharts";
 import { durLabel, shiftFor, lateMinutesAgainst } from "../features/attendance/attendanceLogic.js";
 import { MONTHS, naira, parseD, todayISO, startOfToday, fmtShort, fmtLong, DEPT_COLORS } from "../lib/format.js";
 import { isOnLeaveToday, monthInsights, branchBreakdown } from "../features/insights/monthInsights.js";
 import { monthKey, monthLabel } from "../lib/payrollHelpers.js";
-import { Avatar, Badge, Card, Stat, Section, Empty, Dot } from "../components/ui.jsx";
+import { onboardingChecklist } from "../lib/onboarding.js";
+import { Avatar, EmpAvatar, Badge, Card, Stat, Section, Empty, Dot, Btn } from "../components/ui.jsx";
 import { LeaveDecideRow } from "./LeavePage.jsx";
 
 // Turns the numbers this person actually cares about right now into a
@@ -45,13 +46,42 @@ function narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLea
   return parts.length ? parts.join(" · ") : "here's where things stand.";
 }
 
-function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees }) {
+function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday }) {
   const hr = new Date().getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const myLeave = myEmp ? db.leave.filter((l) => l.empId === myEmp.id) : [];
   const narrative = narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLeaveNow, upcomingHols, myLeave });
+  const myDocs = myEmp ? (db.employeeDocs || []).filter((d) => d.empId === myEmp.id) : [];
+  const myChecklist = myEmp ? onboardingChecklist(myEmp, db.onboarding, myDocs) : null;
   return (
     <div className="cp-fade">
+      {myBirthdayToday && (
+        <Card style={{ marginBottom: 18, background: "var(--brand-soft)", border: "1px solid var(--brand)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Confetti size={22} style={{ color: "var(--brand)", flex: "0 0 auto" }} />
+            <div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>Happy birthday, {me.name.split(" ")[0]}! 🎉</div>
+              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Everyone here hopes you have a great one.</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {myChecklist && myChecklist.requiredTotal > 0 && !myChecklist.complete && (
+        <Card style={{ marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <ClipboardCheck size={20} style={{ color: "var(--accent)", flex: "0 0 auto" }} />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Finish setting up your profile</div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{myChecklist.requiredDone} of {myChecklist.requiredTotal} required items done.</div>
+              </div>
+            </div>
+            <Btn size="sm" variant="ghost" onClick={() => go("profile")}>Complete profile</Btn>
+          </div>
+        </Card>
+      )}
+
       <div style={{ marginBottom: 22 }}>
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>{greeting}, {me.name.split(" ")[0]}</h2>
         <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>{fmtLong(todayISO())} · {narrative}</p>
@@ -102,7 +132,7 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
                       {ins.mostPunctual.slice(0, 10).map((x, i) => (
                         <div key={x.emp.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ width: 20, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted)" }}>{i + 1}</span>
-                          <Avatar name={x.emp.name} size={28} />
+                          <EmpAvatar emp={x.emp} size={28} />
                           <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{x.emp.name}</span>
                           <Badge tone={x.lateDays === 0 ? "ok" : "warn"}>
                             {x.lateDays === 0 ? "never late" : `${x.lateDays} late`}
@@ -222,7 +252,11 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
             const newStarters = db.employees.filter((e) => e.joined && (today - parseD(e.joined)) / 86400000 <= 30 && parseD(e.joined) <= today);
             const expiring = db.employees.filter((e) => e.contractEnd && (parseD(e.contractEnd) - today) / 86400000 <= 60 && parseD(e.contractEnd) >= today);
             const missing = db.employees.filter((e) => !e.nin || !e.pension || !e.acct);
-            if (!newStarters.length && !expiring.length && !missing.length) return null;
+            const unfinishedOnboarding = db.employees.filter((e) => {
+              const docs = (db.employeeDocs || []).filter((d) => d.empId === e.id);
+              return !onboardingChecklist(e, db.onboarding, docs).complete;
+            });
+            if (!newStarters.length && !expiring.length && !missing.length && !unfinishedOnboarding.length) return null;
             return (
               <Card>
                 <Section title="Needs your attention">
@@ -231,6 +265,12 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
                       <div>
                         <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 5 }}><UserPlus size={13} style={{ verticalAlign: "-2px" }} /> {newStarters.length} new {newStarters.length === 1 ? "starter" : "starters"} (last 30 days)</div>
                         <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{newStarters.map((e) => e.name).join(", ")}</div>
+                      </div>
+                    )}
+                    {unfinishedOnboarding.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 5, color: "var(--accent)" }}><ClipboardCheck size={13} style={{ verticalAlign: "-2px" }} /> {unfinishedOnboarding.length} {unfinishedOnboarding.length === 1 ? "person hasn't" : "people haven't"} finished their profile</div>
+                        <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{unfinishedOnboarding.map((e) => e.name).join(", ")}</div>
                       </div>
                     )}
                     {expiring.length > 0 && (
@@ -257,7 +297,7 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {upcomingBdays.slice(0, 4).map(({ e, diff, label }) => (
                     <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                      <Avatar name={e.name} size={34} tone="accent" />
+                      <EmpAvatar emp={e} size={34} tone="accent" />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13.5, fontWeight: 600 }}>{e.name}</div>
                         <div style={{ fontSize: 12, color: "var(--muted)" }}>{e.title || "—"}</div>

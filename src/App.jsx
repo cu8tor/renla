@@ -4,7 +4,9 @@ import {
   supabase, configured, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut,
   createCompany, joinCompany, getProfile, onAuthChange,
   loadWorkspace, uploadDocument, signedUrl,
+  uploadAvatar, uploadEmployeeDocument, removeFiles,
 } from "./lib/supabase.js";
+import { onboardingChecklist } from "./lib/onboarding.js";
 import { syncChanges } from "./lib/sync.js";
 import {
   LayoutDashboard, Users, CalendarDays, Newspaper, FolderClosed, Clock3,
@@ -42,7 +44,7 @@ import { distLabel, getPosition, locErrLabel, stampLocation } from "./lib/geo.js
 import { fetchIP, evaluateChecks, CHECK_LABEL, pruneSelfies } from "./lib/presence.js";
 import { isOnLeaveToday } from "./features/insights/monthInsights.js";
 import { monthLabel, normalizeDb } from "./lib/payrollHelpers.js";
-import { Avatar, Card, Btn } from "./components/ui.jsx";
+import { Avatar, EmpAvatar, Card, Btn } from "./components/ui.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { StyleTag } from "./components/StyleTag.jsx";
 import { NotConfigured, AuthScreen, NewCompany, ResetPasswordScreen } from "./pages/AuthPages.jsx";
@@ -57,6 +59,7 @@ import { AttendancePage } from "./pages/AttendancePage.jsx";
 import { RotaPage } from "./pages/RotaPage.jsx";
 import { PayrollPage } from "./pages/PayrollPage.jsx";
 import { SoonPage } from "./pages/SoonPage.jsx";
+import { ProfilePage } from "./pages/ProfilePage.jsx";
 /* ================================================================== */
 /*  APP                                                                */
 /* ================================================================== */
@@ -358,6 +361,49 @@ function AppShell() {
       devices: d.devices.filter((x) => x.empId !== id),
     }));
     toast("Employee removed", "danger");
+  };
+
+  /* ---------- self-service profile — the employee filling in their OWN
+     details (personal info, emergency contact, reference, bank/KYC,
+     documents, profile picture), instead of HR typing everything in for
+     every new hire. `patch` here is only ever the non-HR-owned fields —
+     ProfilePage.jsx builds it from that limited set — and the database
+     backs this up independently (catch-up-migration-6.sql's
+     guard_employee_self_edit/guard_pay_self_edit triggers reject any
+     write to job/schedule/status/pay fields from a non-HR account, so
+     this is defense in depth, not the only thing stopping it. */
+  const saveMyProfile = (patch) => {
+    if (!myEmp) { toast("Your login isn't linked to an employee record", "warn"); return; }
+    update((d) => ({ ...d, employees: d.employees.map((e) => (e.id === myEmp.id ? { ...e, ...patch } : e)) }));
+    toast("Profile saved");
+  };
+
+  const uploadMyAvatar = async (dataUrl) => {
+    if (!myEmp) return;
+    try {
+      const path = await uploadAvatar(dataUrl, profile.companyId, myEmp.id);
+      update((d) => ({ ...d, employees: d.employees.map((e) => (e.id === myEmp.id ? { ...e, avatarPath: path } : e)) }));
+      toast("Profile picture updated");
+    } catch (e) { toast(e.message || "Couldn't upload that photo", "danger"); }
+  };
+
+  const uploadMyDocument = async (file, kind, name) => {
+    if (!myEmp) return;
+    try {
+      const path = await uploadEmployeeDocument(file, profile.companyId, myEmp.id);
+      update((d) => ({ ...d, employeeDocs: [{ id: uid("edoc"), empId: myEmp.id, kind, name: name || file.name, filePath: path, uploaded: todayISO() }, ...d.employeeDocs] }));
+      toast("Document uploaded");
+    } catch (e) { toast(e.message || "Couldn't upload that file", "danger"); }
+  };
+
+  const deleteMyDocument = (docId) => {
+    if (!myEmp) return;
+    update((d) => ({ ...d, employeeDocs: d.employeeDocs.filter((x) => x.id !== docId) }));
+    toast("Document removed", "danger");
+  };
+
+  const saveOnboardingRequirements = (patch) => {
+    update((d) => ({ ...d, onboarding: { ...d.onboarding, ...patch } }));
   };
 
   const applyLeave = (form) => {
@@ -803,6 +849,7 @@ function AppShell() {
     return false;
   });
   const upcomingBdays = employees.map((e) => ({ e, ...(nextBirthday(e.dob) || { diff: 9999, label: "" }) })).filter((x) => x.diff <= 30).sort((a, b) => a.diff - b.diff);
+  const myBirthdayToday = Boolean(myEmp?.dob && nextBirthday(myEmp.dob)?.diff === 0);
   const upcomingHols = db.holidays.map((h) => ({ ...h, diff: Math.round((parseD(h.date) - startOfToday()) / 86400000) })).filter((h) => h.diff >= 0).sort((a, b) => a.diff - b.diff);
   const deptCounts = {};
   employees.forEach((e) => { const k = e.dept || "Unassigned"; deptCounts[k] = (deptCounts[k] || 0) + 1; });
@@ -862,13 +909,13 @@ function AppShell() {
             ))}
           </nav>
           <div className="cp-side-foot">
-            <div className="cp-side-user">
-              <Avatar name={me.name} size={34} />
+            <div className="cp-side-user" onClick={() => go("profile")} style={{ cursor: "pointer" }} title="My profile">
+              <EmpAvatar emp={myEmp} size={34} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--sidebar-ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{me.name}</div>
                 <div style={{ fontSize: 11, color: "var(--sidebar-muted)" }}>{me.role}</div>
               </div>
-              <button className="cp-icon-btn light" onClick={logout} title="Sign out"><LogOut size={15} /></button>
+              <button className="cp-icon-btn light" onClick={(e) => { e.stopPropagation(); logout(); }} title="Sign out"><LogOut size={15} /></button>
             </div>
           </div>
         </aside>
@@ -885,7 +932,7 @@ function AppShell() {
                   {searchResults.emps.length + searchResults.news.length + searchResults.docs.length === 0 && <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>No matches.</div>}
                   {searchResults.emps.map((e) => (
                     <button key={e.id} className="cp-sr" onClick={() => { setSearch(""); go("employees"); }}>
-                      <Avatar name={e.name} size={28} /><span><b>{e.name}</b><small>{e.title || "—"} · {e.dept || "—"}</small></span>
+                      <EmpAvatar emp={e} size={28} /><span><b>{e.name}</b><small>{e.title || "—"} · {e.dept || "—"}</small></span>
                     </button>
                   ))}
                   {searchResults.news.map((n) => (
@@ -912,7 +959,7 @@ function AppShell() {
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={
-                  <DashboardPage {...{ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees }} />
+                  <DashboardPage {...{ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday }} />
                 } />
                 <Route path="/employees" element={
                   <EmployeesPage {...{ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, empById, toast }} />
@@ -937,8 +984,11 @@ function AppShell() {
                 } />
                 <Route path="/settings" element={
                   isHR
-                    ? <SettingsPage {...{ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload }} />
+                    ? <SettingsPage {...{ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements }} />
                     : <Navigate to="/dashboard" replace />
+                } />
+                <Route path="/profile" element={
+                  <ProfilePage {...{ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocument, deleteMyDocument }} />
                 } />
                 <Route path="/performance" element={<SoonPage item={SOON.find((s) => s.key === "performance")} />} />
                 {/* Anything else (a stale bookmark, a typo'd URL) lands back on the dashboard

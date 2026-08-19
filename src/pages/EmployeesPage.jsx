@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { Users, Wallet, Search, Plus, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert } from "lucide-react";
+import { Users, Wallet, Search, Plus, UserPlus, Copy, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert } from "lucide-react";
 import { emptyPay } from "../features/payroll/payrollEngine.js";
 import { CHECK_KEYS, hasOverrides } from "../features/attendance/attendanceLogic.js";
-import { naira, grossOf, fmtShort } from "../lib/format.js";
+import { naira, grossOf, fmtShort, copyText } from "../lib/format.js";
 import { emptyEmployee } from "../lib/payrollHelpers.js";
-import { Avatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { onboardingChecklist } from "../lib/onboarding.js";
+import { Avatar, EmpAvatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
 
 function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, deleteEmployee, empById, toast }) {
   const [editing, setEditing] = useState(null);
   const [isNew, setIsNew] = useState(false);
   const [viewing, setViewing] = useState(null);
+  const [inviting, setInviting] = useState(false);
   const [q, setQ] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
 
@@ -20,7 +22,12 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
   return (
     <div className="cp-fade">
       <PageHead title={isHR ? "Employees" : isManager ? "My team" : "Directory"} sub={`${list.length} ${list.length === 1 ? "person" : "people"}`}
-        action={isHR && <Btn icon={Plus} onClick={() => { setEditing(emptyEmployee()); setIsNew(true); }}>Add employee</Btn>} />
+        action={isHR && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn variant="ghost" icon={Plus} onClick={() => { setEditing(emptyEmployee()); setIsNew(true); }}>Full form</Btn>
+            <Btn icon={UserPlus} onClick={() => setInviting(true)}>Invite employee</Btn>
+          </div>
+        )} />
 
       <div style={{ marginBottom: 14, maxWidth: 320 }}>
         <div className="cp-search" style={{ maxWidth: "none" }}>
@@ -30,16 +37,19 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
       </div>
 
       <Card pad={0}>
-        {shown.length === 0 ? <div style={{ padding: 30 }}><Empty text={list.length === 0 ? "No employees yet." : "Nothing matches that filter."} action={isHR && list.length === 0 && <Btn icon={Plus} onClick={() => { setEditing(emptyEmployee()); setIsNew(true); }}>Add your first employee</Btn>} /></div> : (
+        {shown.length === 0 ? <div style={{ padding: 30 }}><Empty text={list.length === 0 ? "No employees yet." : "Nothing matches that filter."} action={isHR && list.length === 0 && <Btn icon={UserPlus} onClick={() => setInviting(true)}>Invite your first employee</Btn>} /></div> : (
           <div className="cp-table-wrap">
             <table className="cp-table">
-              <thead><tr><th>Name</th><th>Department</th><th>Role</th>{isHR && <th>Salary / mo</th>}<th>Status</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Department</th><th>Role</th>{isHR && <th>Salary / mo</th>}<th>Status</th>{isHR && <th>Onboarding</th>}<th></th></tr></thead>
               <tbody>
-                {shown.map((e) => (
+                {shown.map((e) => {
+                  const docs = isHR ? (db.employeeDocs || []).filter((d) => d.empId === e.id) : null;
+                  const checklist = isHR ? onboardingChecklist(e, db.onboarding, docs) : null;
+                  return (
                   <tr key={e.id} className="cp-row" onClick={() => setViewing(e)}>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                        <Avatar name={e.name} size={34} />
+                        <EmpAvatar emp={e} size={34} />
                         <div><div style={{ fontWeight: 600, fontSize: 13.5 }}>{e.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{e.email || "—"}</div></div>
                       </div>
                     </td>
@@ -52,6 +62,13 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
                         {isHR && hasOverrides(e) && <span title="Different clock-in checks from the company setting" style={{ color: "var(--accent)", display: "flex" }}><ShieldAlert size={13} /></span>}
                       </div>
                     </td>
+                    {isHR && (
+                      <td>
+                        {checklist.requiredTotal === 0
+                          ? <span style={{ fontSize: 12, color: "var(--muted)" }}>—</span>
+                          : <Badge tone={checklist.complete ? "ok" : "warn"}>{checklist.requiredDone}/{checklist.requiredTotal}</Badge>}
+                      </td>
+                    )}
                     <td onClick={(ev) => ev.stopPropagation()}>
                       {isHR ? (
                         <div style={{ display: "flex", gap: 6 }}>
@@ -61,7 +78,8 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
                       ) : <ChevronRight size={15} style={{ color: "var(--muted)" }} />}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -81,6 +99,13 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
         />
       )}
 
+      {inviting && (
+        <InviteEmployeeModal db={db} toast={toast}
+          onSave={(e) => saveEmployee(e, true)}
+          onClose={() => setInviting(false)}
+        />
+      )}
+
       {confirmDel && (
         <Modal title="Remove employee" onClose={() => setConfirmDel(null)} onSubmit={() => { deleteEmployee(confirmDel.id); setConfirmDel(null); }} submitLabel="Remove permanently">
           <p style={{ fontSize: 14, lineHeight: 1.6, margin: 0 }}>
@@ -89,6 +114,63 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
         </Modal>
       )}
     </div>
+  );
+}
+
+function InviteEmployeeModal({ db, toast, onSave, onClose }) {
+  const [f, setF] = useState({ name: "", email: "", phone: "", title: "", dept: "", managerId: "" });
+  const [created, setCreated] = useState(null);
+  const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+
+  if (created) {
+    return (
+      <Modal title="Employee added" onClose={onClose} onSubmit={onClose} submitLabel="Done">
+        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
+          <b>{created.name}</b> is in. Send them this staff code — they'll sign up with their own email and password and paste it in to link their account.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
+          <code style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, flex: 1, wordBreak: "break-all" }}>{created.id}</code>
+          <button className="cp-mini" onClick={async () => {
+            const ok = await copyText(created.id);
+            if (ok) toast("Staff code copied — send it to " + created.name.split(" ")[0]);
+            else toast("Couldn't copy automatically — here's the code: " + created.id, "danger", 9000);
+          }}><Copy size={13} /> Copy</button>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 14, lineHeight: 1.55 }}>
+          Once they're in, they fill in the rest themselves — emergency contact, bank details, documents, a photo — from their own profile page. You can pick what's required under <b>Settings → Employee onboarding</b>, and invite another person any time from here.
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Invite employee" onClose={onClose} submitLabel="Create & get staff code"
+      onSubmit={() => {
+        if (!f.name.trim()) { toast("A name is required", "warn"); return; }
+        const emp = { ...emptyEmployee(), ...f };
+        onSave(emp);
+        setCreated({ id: emp.id, name: emp.name });
+      }}>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 16, lineHeight: 1.55 }}>
+        Just the basics — your new hire fills in the rest themselves once they sign in with the staff code you'll get next.
+      </div>
+      <div className="cp-form-grid">
+        <Field label="Full name"><input className="cp-input" autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Bola Ade" /></Field>
+        <Field label="Email" hint="Optional"><input className="cp-input" value={f.email} onChange={(e) => set("email", e.target.value)} /></Field>
+        <Field label="Phone" hint="Optional"><input className="cp-input" value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+234 …" /></Field>
+        <Field label="Job title" hint="Optional"><input className="cp-input" value={f.title} onChange={(e) => set("title", e.target.value)} /></Field>
+        <Field label="Department" hint="Optional, type a new one to create it">
+          <input className="cp-input" list="cp-invite-depts" value={f.dept} onChange={(e) => set("dept", e.target.value)} />
+          <datalist id="cp-invite-depts">{db.departments.map((d) => <option key={d} value={d} />)}</datalist>
+        </Field>
+        <Field label="Reports to" hint="Optional">
+          <select className="cp-input" value={f.managerId} onChange={(e) => set("managerId", e.target.value)}>
+            <option value="">— nobody —</option>
+            {db.employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </Field>
+      </div>
+    </Modal>
   );
 }
 
@@ -303,7 +385,7 @@ function ProfileDrawer({ emp, manager, isHR, isSelf, onClose }) {
       <div className="cp-drawer" onClick={(e) => e.stopPropagation()}>
         <button className="cp-drawer-close" onClick={onClose}><X size={16} /></button>
         <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 18 }}>
-          <Avatar name={emp.name} size={56} />
+          <EmpAvatar emp={emp} size={56} />
           <div>
             <h3 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>{emp.name}</h3>
             <div style={{ fontSize: 13, color: "var(--brand)", fontWeight: 600 }}>{emp.title || "—"}</div>

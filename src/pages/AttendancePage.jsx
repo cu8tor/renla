@@ -7,7 +7,7 @@ import { distLabel, locErrLabel } from "../lib/geo.js";
 import { CHECK_LABEL, dueChecksFor, checkState } from "../lib/presence.js";
 import { isOnLeaveToday } from "../features/insights/monthInsights.js";
 import { monthLabel, monthOptions } from "../lib/payrollHelpers.js";
-import { Avatar, Badge, Card, Btn, Stat, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { Avatar, EmpAvatar, Badge, Card, Btn, Stat, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
 
 // `shift` is this employee's actual shift for the record's date (from
 // shiftFor) — not the company's flat dayStart/dayEnd — so night-shift,
@@ -454,7 +454,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
                 const e = empById(m.empId);
                 return (
                   <div key={m.empId + m.dueTime} className="cp-leaverow">
-                    <Avatar name={e?.name || "?"} size={34} />
+                    <EmpAvatar emp={e} size={34} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13.5, fontWeight: 600 }}>{e?.name || "Unknown"}</div>
                       <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
@@ -485,7 +485,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
                     <div key={a.id} className="cp-leaverow" style={{ alignItems: "flex-start" }}>
                       {a.selfie
                         ? <SelfieThumb path={a.selfie} onClick={() => setZoom(a)} />
-                        : <Avatar name={e?.name || "?"} size={40} />}
+                        : <EmpAvatar emp={e} size={40} />}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 13.5 }}>{e?.name || "Unknown"}</div>
                         <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 1 }}>{fmtLong(a.date)} · clocked in {a.clockIn}{a.deviceLabel ? ` · ${a.deviceLabel}` : ""}{a.ip ? ` · ${a.ip}` : ""}</div>
@@ -530,7 +530,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
                 <tbody>
                   {boardRows.map(({ e, rec, st }) => (
                     <tr key={e.id}>
-                      <td><div style={{ display: "flex", alignItems: "center", gap: 11 }}><Avatar name={e.name} size={32} /><div><div style={{ fontWeight: 600, fontSize: 13.5 }}>{e.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{e.title || "—"}</div></div></div></td>
+                      <td><div style={{ display: "flex", alignItems: "center", gap: 11 }}><EmpAvatar emp={e} size={32} /><div><div style={{ fontWeight: 600, fontSize: 13.5 }}>{e.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{e.title || "—"}</div></div></div></td>
                       <td style={{ fontFamily: "var(--font-mono)", fontSize: 13, whiteSpace: "nowrap" }}>{rec?.clockIn || "—"}{rec?.clockOut ? ` – ${rec.clockOut}` : ""}</td>
                       {anyoneHas(work, db.employees, "requireSelfie") && <td>{rec?.selfie ? <SelfieThumb path={rec.selfie} className="cp-thumb sm" onClick={() => setZoom(rec)} /> : <span style={{ fontSize: 12, color: "var(--muted)" }}>—</span>}</td>}
                       {geoOn && <td>{rec?.inLoc ? <LocBadge loc={rec.inLoc} /> : <span style={{ fontSize: 12, color: "var(--muted)" }}>—</span>}</td>}
@@ -654,7 +654,7 @@ function AttendancePage({ db, isHR, isManager, myTeam, myEmp, empById, myTodayAt
                             <div style={{ fontSize: 11.5, color: "var(--muted)" }}>{DAYS[(parseD(r.date).getDay() + 6) % 7]}</div>
                           </td>
                           {(isHR || isManager) && histEmp === "all" && (
-                            <td><div style={{ display: "flex", alignItems: "center", gap: 9 }}><Avatar name={e?.name || "?"} size={28} /><span style={{ fontSize: 13 }}>{e?.name || "Unknown"}</span></div></td>
+                            <td><div style={{ display: "flex", alignItems: "center", gap: 9 }}><EmpAvatar emp={e} size={28} /><span style={{ fontSize: 13 }}>{e?.name || "Unknown"}</span></div></td>
                           )}
                           <td style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{r.clockIn || "—"}</td>
                           <td style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{r.clockOut || <span style={{ color: "var(--warn)" }}>—</span>}</td>

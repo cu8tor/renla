@@ -1,10 +1,38 @@
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { initials } from "../lib/format.js";
+import { signedUrl } from "../lib/supabase.js";
 
-function Avatar({ name, size = 36, tone = "brand" }) {
+// `photo`, if given, is an already-resolved signed URL (see EmpAvatar
+// below) — Avatar itself stays synchronous and just falls back to
+// initials when there isn't one, so it's still safe to use anywhere a
+// person's name is shown but there's no employee record to look a
+// photo up from (e.g. a news post's free-text author name).
+function Avatar({ name, size = 36, tone = "brand", photo }) {
   const bg = tone === "brand" ? "var(--brand-soft)" : "var(--accent-soft)";
   const fg = tone === "brand" ? "var(--brand)" : "var(--accent)";
+  if (photo) {
+    return <img src={photo} alt={name || ""} style={{ width: size, height: size, borderRadius: size, objectFit: "cover", flex: "0 0 auto" }} />;
+  }
   return <div style={{ width: size, height: size, borderRadius: size, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontWeight: 600, fontSize: size * 0.38, flex: "0 0 auto" }}>{initials(name)}</div>;
+}
+
+// The usual way to render a person's avatar when a full employee record
+// is available: pass the employee object and this resolves their
+// avatarPath (if any) to a signed URL and renders Avatar with it,
+// falling back to initials while loading or if they don't have a photo.
+// signedUrl() already caches for most of an hour, so re-rendering the
+// same employee elsewhere on the page doesn't refetch.
+function EmpAvatar({ emp, size = 36, tone = "brand" }) {
+  const path = emp?.avatarPath;
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let alive = true;
+    if (!path) { setUrl(""); return; }
+    signedUrl("avatars", path).then((u) => { if (alive) setUrl(u); });
+    return () => { alive = false; };
+  }, [path]);
+  return <Avatar name={emp?.name} size={size} tone={tone} photo={url} />;
 }
 function Badge({ children, tone = "muted" }) {
   const map = { ok: ["var(--ok-soft)", "var(--ok)"], warn: ["var(--warn-soft)", "var(--warn)"], danger: ["var(--danger-soft)", "var(--danger)"], brand: ["var(--brand-soft)", "var(--brand)"], accent: ["var(--accent-soft)", "var(--accent)"], muted: ["var(--card2)", "var(--muted)"] };
@@ -95,4 +123,4 @@ function Modal({ title, children, onClose, onSubmit, submitLabel, wide }) {
   );
 }
 
-export { Avatar, Badge, Card, Btn, Stat, Field, KV, Section, PageHead, Empty, Dot, Modal };
+export { Avatar, EmpAvatar, Badge, Card, Btn, Stat, Field, KV, Section, PageHead, Empty, Dot, Modal };
