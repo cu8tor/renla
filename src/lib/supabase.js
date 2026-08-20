@@ -202,6 +202,7 @@ export async function loadWorkspace(profile) {
     work: settings.data.work,
     payroll: settings.data.payroll,
     onboarding: settings.data.onboarding || {},
+    leaderboard: settings.data.leaderboard || {},
     employees: (employees.data || []).map((r) => {
       const p = payById[r.id];
       return {

@@ -321,9 +321,9 @@ export async function syncChanges(prev, next, companyId) {
   }
 
   /* --- settings and company details --- */
-  if (!eq(prev.work, next.work) || !eq(prev.payroll, next.payroll) || !eq(prev.onboarding, next.onboarding)) {
+  if (!eq(prev.work, next.work) || !eq(prev.payroll, next.payroll) || !eq(prev.onboarding, next.onboarding) || !eq(prev.leaderboard, next.leaderboard)) {
     await run("save settings", supabase.from("company_settings")
-      .update({ work: next.work, payroll: next.payroll, onboarding: next.onboarding, updated_at: new Date().toISOString() })
+      .update({ work: next.work, payroll: next.payroll, onboarding: next.onboarding, leaderboard: next.leaderboard, updated_at: new Date().toISOString() })
       .eq("company_id", companyId));
   }
   if (!eq(prev.company, next.company)) {

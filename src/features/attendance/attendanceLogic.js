@@ -126,6 +126,19 @@ function lateMinutesAgainst(shiftStart, clockIn, graceMins) {
   if (diff > 720) diff -= 1440;
   return Math.max(0, diff - (Number(graceMins) || 0));
 }
+/* Raw clock-in offset against a shift start, in minutes — positive means
+   late, negative means early, unlike lateMinutesAgainst (which clamps at 0
+   and subtracts grace, since that one's for flagging lateness rather than
+   measuring it). Shares the same night-shift-safe wraparound handling.
+   Used by leaderboard.js to rank people by how early they tend to arrive. */
+function clockInOffsetMinutes(shiftStart, clockIn) {
+  const start = hmToMin(shiftStart), inMin = hmToMin(clockIn);
+  if (start == null || inMin == null) return null;
+  let diff = inMin - start;
+  if (diff < -720) diff += 1440;
+  if (diff > 720) diff -= 1440;
+  return diff;
+}
 /* Minutes worked past the end of the shift. Measured from the shift's end,
    not total hours — otherwise arriving early would earn overtime. */
 function overtimeMinutes(shift, clockIn, clockOut) {
@@ -149,4 +162,4 @@ const anyoneHas = (work, employees, key) =>
   Boolean(work[key]) || (employees || []).some((e) => e.checkPrefs && e.checkPrefs[key] === true);
 const hasOverrides = (emp) => Boolean(emp && emp.checkPrefs && CHECK_KEYS.some((k) => typeof emp.checkPrefs[k] === "boolean"));
 
-export { DAYS, pad2, nowHM, hmToMin, minToHM, durLabel, addDays, mondayOf, shiftMins, DEFAULT_SHIFTS, crossesMidnight, minutesBetween, dayKeyFor, shiftFor, lateMinutesAgainst, overtimeMinutes, CHECK_KEYS, effectiveWork, anyoneHas, hasOverrides };
+export { DAYS, pad2, nowHM, hmToMin, minToHM, durLabel, addDays, mondayOf, shiftMins, DEFAULT_SHIFTS, crossesMidnight, minutesBetween, dayKeyFor, shiftFor, lateMinutesAgainst, clockInOffsetMinutes, overtimeMinutes, CHECK_KEYS, effectiveWork, anyoneHas, hasOverrides };

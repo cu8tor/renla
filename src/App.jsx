@@ -17,7 +17,7 @@ import {
   Settings as SettingsIcon, Trash2, Pencil, KeyRound, Database, AlertCircle,
   UserPlus, Link2, Info, Play, Square, Timer, ChevronLeft, Copy, AlertTriangle,
   Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, CheckCircle2, XCircle, Eye,
-  Receipt, Banknote,
+  Receipt, Banknote, Trophy,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell,
@@ -61,6 +61,7 @@ import { RotaPage } from "./pages/RotaPage.jsx";
 import { PayrollPage } from "./pages/PayrollPage.jsx";
 import { SoonPage } from "./pages/SoonPage.jsx";
 import { ProfilePage } from "./pages/ProfilePage.jsx";
+import { LeaderboardPage } from "./pages/LeaderboardPage.jsx";
 /* ================================================================== */
 /*  APP                                                                */
 /* ================================================================== */
@@ -502,6 +503,10 @@ function AppShell() {
 
   const saveOnboardingRequirements = (patch) => {
     update((d) => ({ ...d, onboarding: { ...d.onboarding, ...patch } }));
+  };
+
+  const saveLeaderboardSettings = (patch) => {
+    update((d) => ({ ...d, leaderboard: { ...d.leaderboard, ...patch } }));
   };
 
   const applyLeave = (form) => {
@@ -968,6 +973,7 @@ function AppShell() {
     { key: "employees", label: isHR ? "Employees" : isManager ? "My team" : "Directory", icon: Users },
     { key: "attendance", label: "Attendance", icon: Clock3 },
     { key: "rota", label: "Rota", icon: CalendarRange },
+    ...(db.leaderboard?.enabled ? [{ key: "leaderboard", label: "Leaderboard", icon: Trophy }] : []),
     { key: "leave", label: "Leave", icon: CalendarDays },
     { key: "news", label: "Company news", icon: Newspaper },
     { key: "documents", label: "Documents", icon: FolderClosed },
@@ -1083,11 +1089,14 @@ function AppShell() {
                 } />
                 <Route path="/settings" element={
                   isHR
-                    ? <SettingsPage {...{ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements }} />
+                    ? <SettingsPage {...{ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings }} />
                     : <Navigate to="/dashboard" replace />
                 } />
                 <Route path="/profile" element={
                   <ProfilePage {...{ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocument, deleteMyDocument }} />
+                } />
+                <Route path="/leaderboard" element={
+                  <LeaderboardPage {...{ db, myEmp, isHR, go }} />
                 } />
                 <Route path="/performance" element={<SoonPage item={SOON.find((s) => s.key === "performance")} />} />
                 {/* Anything else (a stale bookmark, a typo'd URL) lands back on the dashboard

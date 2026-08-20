@@ -4,6 +4,7 @@ import { uid, todayISO } from "./format.js";
 import { DEFAULT_WORK } from "./presence.js";
 import { blankBalances } from "../features/insights/monthInsights.js";
 import { DEFAULT_ONBOARDING } from "./onboarding.js";
+import { DEFAULT_LEADERBOARD } from "./leaderboard.js";
 
 const monthKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 const monthLabel = (k) => { const [y, m] = k.split("-").map(Number); return `${["January","February","March","April","May","June","July","August","September","October","November","December"][m - 1]} ${y}`; };
@@ -29,6 +30,7 @@ function normalizeDb(d) {
     payruns: d.payruns || [],
     payroll: { ...DEFAULT_PAYROLL, ...(d.payroll || {}) },
     onboarding: { ...DEFAULT_ONBOARDING, ...(d.onboarding || {}) },
+    leaderboard: { ...DEFAULT_LEADERBOARD, ...(d.leaderboard || {}) },
     employeeDocs: d.employeeDocs || [],
     employees: (d.employees || []).map((e) =>
       e.pay

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Clock3, Plus, Check, X, Building2, MapPin, Download, PartyPopper, BadgeCheck, Trash2, Database, Info, Copy, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw } from "lucide-react";
+import { Clock3, Plus, Check, X, Building2, MapPin, Download, PartyPopper, BadgeCheck, Trash2, Database, Info, Copy, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, Trophy } from "lucide-react";
 import { supabase } from "../lib/supabase.js";
 import { DEFAULT_PAYROLL } from "../features/payroll/payrollEngine.js";
 import { durLabel, crossesMidnight, minutesBetween } from "../features/attendance/attendanceLogic.js";
@@ -7,6 +7,7 @@ import { uid, fmtShort, fmtLong, copyText } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
 import { DEFAULT_WORK } from "../lib/presence.js";
 import { DEFAULT_ONBOARDING } from "../lib/onboarding.js";
+import { DEFAULT_LEADERBOARD } from "../lib/leaderboard.js";
 import { Avatar, EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
 import { Payslip } from "./PayrollPage.jsx";
@@ -22,10 +23,11 @@ const ONBOARDING_FIELDS = [
   { key: "requireIdDocument", label: "An ID or reference document" },
 ];
 
-function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements }) {
+function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings }) {
   const [name, setName] = useState(db.company.name);
   const [work, setWork] = useState({ ...DEFAULT_WORK, ...(db.work || {}) });
   const [onboarding, setOnboarding] = useState({ ...DEFAULT_ONBOARDING, ...(db.onboarding || {}) });
+  const [leaderboard, setLeaderboard] = useState({ ...DEFAULT_LEADERBOARD, ...(db.leaderboard || {}) });
   const [site, setSite] = useState({ name: "", lat: "", lng: "", radius: "200" });
   const [pr, setPr] = useState({ ...DEFAULT_PAYROLL, ...(db.payroll || {}) });
   const [picking, setPicking] = useState(false);
@@ -103,6 +105,21 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
             </div>
             <div style={{ marginTop: 14 }}>
               <Btn onClick={() => { saveOnboardingRequirements(onboarding); toast("Onboarding requirements saved"); }}>Save requirements</Btn>
+            </div>
+          </Section>
+        </Card>
+
+        <Card>
+          <Section title="Punctuality leaderboard">
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
+              A fun, optional ranking of who clocks in earliest each month — everyone's judged against their <i>own</i> shift, so a night-shift or custom-hours person isn't compared against a flat company time. Off by default, and it only ever spotlights who's doing well — nobody's lateness gets published. Visible to the whole company once on.
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 9, cursor: "pointer", maxWidth: 340 }}>
+              <input type="checkbox" checked={Boolean(leaderboard.enabled)} onChange={(e) => setLeaderboard({ ...leaderboard, enabled: e.target.checked })} />
+              Show the leaderboard to everyone
+            </label>
+            <div style={{ marginTop: 14 }}>
+              <Btn icon={Trophy} onClick={() => { saveLeaderboardSettings(leaderboard); toast(leaderboard.enabled ? "Leaderboard turned on" : "Leaderboard turned off"); }}>Save</Btn>
             </div>
           </Section>
         </Card>
