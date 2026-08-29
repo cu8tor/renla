@@ -162,7 +162,7 @@ function ProfilePage({ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocumen
       </Card>
 
       <Card style={{ marginBottom: 18 }}>
-        <Section title="Personal details" action={<Btn size="sm" variant="ghost" icon={Check} disabled={locked} onClick={() => saveMyProfile(personal)}>Save</Btn>}>
+        <Section title="Personal details" action={<Btn size="sm" variant="primary" icon={Check} disabled={locked} onClick={() => saveMyProfile(personal)}>Save</Btn>}>
           <div className="cp-form-grid">
             <Field label="Phone"><input className="cp-input" disabled={locked} value={personal.phone} onChange={(e) => setPersonal({ ...personal, phone: e.target.value })} placeholder="+234 …" /></Field>
             <Field label="Date of birth"><input type="date" className="cp-input" disabled={locked} value={personal.dob} onChange={(e) => setPersonal({ ...personal, dob: e.target.value })} /></Field>
@@ -174,7 +174,7 @@ function ProfilePage({ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocumen
       </Card>
 
       <Card style={{ marginBottom: 18 }}>
-        <Section title="Emergency contact" action={<Btn size="sm" variant="ghost" icon={Check} disabled={locked} onClick={() => saveMyProfile(contact)}>Save</Btn>}>
+        <Section title="Emergency contact" action={<Btn size="sm" variant="primary" icon={Check} disabled={locked} onClick={() => saveMyProfile(contact)}>Save</Btn>}>
           <div className="cp-form-grid">
             <Field label="Emergency contact" hint="Name and phone number"><input className="cp-input" disabled={locked} value={contact.emergency} onChange={(e) => setContact({ ...contact, emergency: e.target.value })} placeholder="e.g. Bola Ade — 080…" /></Field>
             <Field label="Next of kin"><input className="cp-input" disabled={locked} value={contact.kin} onChange={(e) => setContact({ ...contact, kin: e.target.value })} /></Field>
@@ -183,7 +183,7 @@ function ProfilePage({ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocumen
       </Card>
 
       <Card style={{ marginBottom: 18 }}>
-        <Section title="Reference" action={<Btn size="sm" variant="ghost" icon={Check} disabled={locked} onClick={() => saveMyProfile(reference)}>Save</Btn>}>
+        <Section title="Reference" action={<Btn size="sm" variant="primary" icon={Check} disabled={locked} onClick={() => saveMyProfile(reference)}>Save</Btn>}>
           <div className="cp-form-grid">
             <Field label="Full name"><input className="cp-input" disabled={locked} value={reference.referenceName} onChange={(e) => setReference({ ...reference, referenceName: e.target.value })} /></Field>
             <Field label="Phone"><input className="cp-input" disabled={locked} value={reference.referencePhone} onChange={(e) => setReference({ ...reference, referencePhone: e.target.value })} /></Field>
@@ -193,7 +193,7 @@ function ProfilePage({ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocumen
       </Card>
 
       <Card style={{ marginBottom: 18 }}>
-        <Section title="Bank & statutory IDs" action={<Btn size="sm" variant="ghost" icon={Check} disabled={locked} onClick={() => saveMyProfile(bank)}>Save</Btn>}>
+        <Section title="Bank & statutory IDs" action={<Btn size="sm" variant="primary" icon={Check} disabled={locked} onClick={() => saveMyProfile(bank)}>Save</Btn>}>
           <div className="cp-form-grid">
             <Field label="NIN"><input className="cp-input" disabled={locked} value={bank.nin} onChange={(e) => setBank({ ...bank, nin: e.target.value })} /></Field>
             <Field label="BVN"><input className="cp-input" disabled={locked} value={bank.bvn} onChange={(e) => setBank({ ...bank, bvn: e.target.value.replace(/[^0-9]/g, "").slice(0, 11) })} /></Field>
