@@ -981,7 +981,7 @@ function AppShell() {
   ];
   if (isHR) NAV.push({ key: "settings", label: "Settings", icon: SettingsIcon });
   const SOON = [
-    { key: "performance", label: "Performance", icon: BarChart3, phase: "Phase 4" },
+    { key: "performance", label: "Performance", icon: BarChart3, phase: "Coming soon" },
   ];
   const go = (k) => { navigate("/" + k); setNavOpen(false); };
 
