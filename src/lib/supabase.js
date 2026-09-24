@@ -398,6 +398,14 @@ export async function uploadAvatar(dataUrl, companyId, employeeId) {
   // card that shows that face.
   const small = await downscaleToSquare(dataUrl, 320);
   const blob = await (await fetch(small)).blob();
+  // downscaleToSquare falls back to the original if the browser can't decode
+  // the image into a canvas — which some mobile browsers do on very large
+  // photos. Failing quietly there meant an 8MB original went up as if
+  // nothing was wrong, which is exactly the bug this was meant to prevent.
+  // Refuse instead, and say so.
+  if (blob.size > 1_500_000) {
+    throw new Error("That photo is too large to process on this device — try a smaller one, or a screenshot of it.");
+  }
   const path = `${companyId}/${employeeId}/avatar-${Date.now()}.jpg`;
   const { error } = await supabase.storage
     .from("avatars")

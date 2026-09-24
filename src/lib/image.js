@@ -34,9 +34,15 @@ export function downscaleToSquare(dataUrl, size = 320, quality = 0.82) {
           const ctx = c.getContext("2d");
           ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, out, out);
           resolve(c.toDataURL("image/jpeg", quality));
-        } catch { resolve(dataUrl); }
+        } catch (e) {
+          console.warn("[renla] avatar downscale failed on canvas", e);
+          resolve(dataUrl);
+        }
       };
-      img.onerror = () => resolve(dataUrl);
+      img.onerror = () => {
+        console.warn("[renla] avatar downscale failed: image could not be decoded");
+        resolve(dataUrl);
+      };
       img.src = dataUrl;
     } catch { resolve(dataUrl); }
   });

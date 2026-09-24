@@ -1,16 +1,26 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Check, X, MapPin, ShieldCheck, Info, Timer } from "lucide-react";
+import { Plus, Check, X, MapPin, ShieldCheck, Info, Timer, Eye, CalendarDays } from "lucide-react";
 import { nowHM, hmToMin, durLabel } from "../features/attendance/attendanceLogic.js";
 import { parseD, todayISO, fmtShort, daysInclusive } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
-import { Avatar, EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
+import { absenceHistory, leaveHistoryFor, leaveTakenByType } from "../features/insights/absenceHistory.js";
+import { Avatar, EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal, Stat } from "../components/ui.jsx";
+
+/* The three leave types with a tracked balance, in display order. Mirrors
+   BAL_KEYS in leaveLogic.js — anything not here is granted without being
+   counted against an allowance. */
+const BAL_VIEW = [
+  { key: "annual", label: "Annual" },
+  { key: "sick", label: "Sick" },
+  { key: "comp", label: "Compassionate" },
+];
 
 const statusMeta = (s) => s === "approved" ? { tone: "ok", label: "Approved" }
   : s === "declined" ? { tone: "danger", label: "Declined" }
   : s === "pending_hr" ? { tone: "warn", label: "Pending HR" }
   : { tone: "warn", label: "Pending manager" };
 
-function LeaveDecideRow({ l, emp, onDecide }) {
+function LeaveDecideRow({ l, emp, onDecide, onView }) {
   return (
     <div className="cp-leaverow">
       <EmpAvatar emp={emp} size={36} />
@@ -23,13 +33,14 @@ function LeaveDecideRow({ l, emp, onDecide }) {
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{fmtShort(l.from)} – {fmtShort(l.to)} · {l.reason}</div>
       </div>
       <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
+        {onView && <button className="cp-mini" onClick={() => onView(l)} title="See this person's record"><Eye size={14} /> View</button>}
         <button className="cp-mini cp-mini-ok" onClick={() => onDecide(l.id, true)}><Check size={14} /> Approve</button>
         <button className="cp-mini cp-mini-no" onClick={() => onDecide(l.id, false)}><X size={14} /></button>
       </div>
     </div>
   );
 }
-function LeaveInfoRow({ l, emp, showName }) {
+function LeaveInfoRow({ l, emp, showName, onView }) {
   const m = statusMeta(l.status);
   return (
     <div className="cp-leaverow">
@@ -42,7 +53,10 @@ function LeaveInfoRow({ l, emp, showName }) {
         </div>
         {l.reason && l.reason !== "—" && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{l.reason}</div>}
       </div>
-      <Badge tone={m.tone}>{m.label}</Badge>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
+        <Badge tone={m.tone}>{m.label}</Badge>
+        {onView && <button className="cp-mini" onClick={() => onView(l)} title="See this person's record"><Eye size={14} /> View</button>}
+      </div>
     </div>
   );
 }
@@ -87,6 +101,133 @@ function PermRow({ p, emp, showName, canAct, onDecide }) {
   );
 }
 
+
+/* One person's attendance record, opened from any leave row. Answers the
+   question a count can't: which days, and what happened on them. */
+
+/* HR and managers need to reach someone's record whether or not they've
+   ever requested leave — going in through a leave row only works for people
+   who already have one, which misses exactly the person you're checking up
+   on. This lists everyone in scope with their balances at a glance. */
+function TeamLeaveCard({ people, db, onView }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const rows = needle
+    ? people.filter((e) => (e.name || "").toLowerCase().includes(needle) || (e.dept || "").toLowerCase().includes(needle))
+    : people;
+
+  return (
+    <Card>
+      <Section title={`Team leave · ${people.length}`}
+        action={people.length > 6
+          ? <input className="cp-input" style={{ maxWidth: 200, height: 32, fontSize: 13 }}
+              placeholder="Find someone" value={q} onChange={(e) => setQ(e.target.value)} />
+          : null}>
+        {rows.length === 0 ? <Empty text="Nobody matches that." /> :
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {rows.map((e) => {
+              const pending = (db.leave || []).filter((l) => l.empId === e.id && l.status.startsWith("pending")).length;
+              return (
+                <div key={e.id} className="cp-leaverow">
+                  <EmpAvatar emp={e} size={34} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 600, fontSize: 13.5 }}>{e.name}</span>
+                      {pending > 0 && <Badge tone="warn">{pending} pending</Badge>}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
+                      {BAL_VIEW.map((b) => `${e.bal?.[b.key] ?? 0} ${b.label.toLowerCase()}`).join(" · ")} left
+                    </div>
+                  </div>
+                  <button className="cp-mini" onClick={() => onView(e)}><Eye size={14} /> View</button>
+                </div>
+              );
+            })}
+          </div>}
+      </Section>
+    </Card>
+  );
+}
+
+function LeaveHistoryModal({ db, emp, onClose }) {
+  const [months, setMonths] = useState(3);
+
+  const today = new Date();
+  const from = new Date(today.getFullYear(), today.getMonth() - months + 1, 1);
+  const fromISO = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-01`;
+  const hist = absenceHistory(db, emp, fromISO, todayISO(), today);
+  const requests = leaveHistoryFor(db, emp?.id);
+  const year = today.getFullYear();
+  const taken = leaveTakenByType(db, emp?.id, year);
+
+  const rate = hist.expected ? Math.round((hist.present / hist.expected) * 100) : 0;
+
+  return (
+    <Modal title={emp?.name || "Leave history"} onClose={onClose} wide>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        {[3, 6, 12].map((m) => (
+          <button key={m} className={"cp-mini" + (months === m ? " cp-mini-ok" : "")} onClick={() => setMonths(m)}>
+            Last {m} months
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+        {BAL_VIEW.map(({ key, label }) => (
+          <div key={key} style={{ flex: "1 1 140px", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px" }}>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{label}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700, marginTop: 2 }}>
+              {emp?.bal?.[key] ?? 0}<span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--muted)" }}> left</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
+              {taken[label] || 0} taken in {year}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="cp-tiles" style={{ marginBottom: 18 }}>
+        <Stat icon={Check} label="Days present" value={hist.present} sub={`of ${hist.expected} expected`} />
+        <Stat icon={CalendarDays} label="On leave" value={hist.leave.length} sub="approved days" tone="accent" />
+        <Stat icon={X} label="Unexplained" value={hist.absent.length} sub="no record, no leave" tone="accent" />
+        <Stat icon={Timer} label="Attendance" value={`${rate}%`} sub={hist.holidays ? `${hist.holidays} public holidays skipped` : "excludes days off"} />
+      </div>
+
+      {Object.keys(taken).filter((t) => !BAL_VIEW.some((b) => b.label === t)).length > 0 && (
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 16, lineHeight: 1.6 }}>
+          Also taken in {year}: {Object.entries(taken)
+            .filter(([t]) => !BAL_VIEW.some((b) => b.label === t))
+            .map(([t, n]) => `${n}d ${t.toLowerCase()}`).join(", ")}.
+          These types have no tracked balance.
+        </div>
+      )}
+
+      <Section title="Leave requests">
+        {requests.length === 0 ? <Empty text="This person has never requested leave." /> :
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {requests.map((l) => <LeaveInfoRow key={l.id} l={l} emp={emp} showName={false} />)}
+          </div>}
+      </Section>
+
+      <div style={{ marginTop: 18 }}>
+        <Section title={`Days absent with no leave${hist.absent.length ? ` · ${hist.absent.length}` : ""}`}>
+          {hist.absent.length === 0
+            ? <Empty text="No unexplained absences in this period." />
+            : <>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {hist.absent.map((d) => <Badge key={d} tone="warn">{fmtShort(d)}</Badge>)}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10, lineHeight: 1.55 }}>
+                  Working days with no clock-in and no approved leave. Days off, public holidays
+                  and anything before they joined are left out, so these are days worth asking about.
+                </div>
+              </>}
+        </Section>
+      </div>
+    </Modal>
+  );
+}
+
 function LeavePage({ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, applyLeave, requestPermission, decidePermission }) {
   const [tab, setTab] = useState("leave");
   const [permOpen, setPermOpen] = useState(false);
@@ -112,6 +253,14 @@ function LeavePage({ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, a
   }, [permOpen, pf.kind]);
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ type: "Annual", from: "", to: "", reason: "" });
+  // Only HR and managers get the record view — an employee looking at their
+  // own request has no business opening a colleague's attendance history,
+  // and their own is already the whole page.
+  const [viewEmp, setViewEmp] = useState(null);
+  const canViewRecords = isHR || isManager;
+  const openRecord = canViewRecords ? (l) => setViewEmp(empById(l.empId) || null) : null;
+  // HR sees the whole company; a manager sees only their own reports.
+  const scopePeople = (isHR ? db.employees : myTeam).filter((e) => e.status === "Active");
 
   const relevant = isHR ? db.leave
     : isManager ? db.leave.filter((l) => myTeam.some((m) => m.id === l.empId) || l.empId === myEmp?.id)
@@ -156,17 +305,20 @@ function LeavePage({ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, a
                 {pending.map((l) => {
                   const canAct = isHR || (isManager && l.status === "pending_manager" && myTeam.some((m) => m.id === l.empId));
                   return canAct
-                    ? <LeaveDecideRow key={l.id} l={l} emp={empById(l.empId)} onDecide={decideLeave} />
-                    : <LeaveInfoRow key={l.id} l={l} emp={empById(l.empId)} showName={isHR || isManager} />;
+                    ? <LeaveDecideRow key={l.id} l={l} emp={empById(l.empId)} onDecide={decideLeave} onView={openRecord} />
+                    : <LeaveInfoRow key={l.id} l={l} emp={empById(l.empId)} showName={isHR || isManager} onView={openRecord} />;
                 })}
               </div>}
           </Section>
         </Card>
+        {canViewRecords && scopePeople.length > 0 && (
+          <TeamLeaveCard people={scopePeople} db={db} onView={setViewEmp} />
+        )}
         <Card>
           <Section title="History">
             {decided.length === 0 ? <Empty text="Nothing here yet." /> :
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {decided.map((l) => <LeaveInfoRow key={l.id} l={l} emp={empById(l.empId)} showName={isHR || isManager} />)}
+                {decided.map((l) => <LeaveInfoRow key={l.id} l={l} emp={empById(l.empId)} showName={isHR || isManager} onView={openRecord} />)}
               </div>}
           </Section>
         </Card>
@@ -196,6 +348,8 @@ function LeavePage({ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, a
           <span>An approved late arrival means no lateness deduction for that day. Official time out of the office is never docked.</span>
         </div>
       </div>}
+
+      {viewEmp && <LeaveHistoryModal db={db} emp={viewEmp} onClose={() => setViewEmp(null)} />}
 
       {permOpen && (
         <Modal title="New request" onClose={() => setPermOpen(false)} submitLabel="Send request"
