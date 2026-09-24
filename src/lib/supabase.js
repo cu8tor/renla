@@ -70,6 +70,37 @@ export async function joinCompany(employeeId) {
   if (error) throw new Error(friendly(error.message));
 }
 
+/* Emailed invites. joinCompany() above is the older staff-code path, kept
+   as the fallback for staff who have no email address — the two are
+   independent and both work.
+
+   The difference that matters: a staff code is the employee row's own
+   UUID, so it never expires and anyone holding it can claim that record.
+   An invite token is random, single-use, expiring, and accept_invite()
+   refuses it unless the signed-in address matches the one it was sent
+   to — so a forwarded invite email is useless to whoever receives it. */
+
+export async function sendInvite({ employeeId, email, name, role }) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("You've been signed out — sign in again.");
+  const res = await fetch(`${url}/functions/v1/send-invite`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ employeeId, email, name, role }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || "Couldn't send that invite.");
+  return out;   // { ok, link, error? }
+}
+
+export async function acceptInvite(token) {
+  const { error } = await supabase.rpc("accept_invite", { p_token: token });
+  if (error) throw new Error(friendly(error.message));
+}
+
 export async function getSession() {
   const { data } = await supabase.auth.getSession();
   return data.session;

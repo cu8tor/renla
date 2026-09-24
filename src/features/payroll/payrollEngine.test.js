@@ -18,6 +18,7 @@ import { describe, it, expect } from "vitest";
 import {
   NTA2025_BANDS,
   DEFAULT_PAYROLL,
+  elapsedWorkingDays,
   calendarWorkingDays,
   resolveWorkingDays,
   payeAnnual,
@@ -177,5 +178,61 @@ describe("computePayslip", () => {
     expect(calc.deductions.loan).toBe(20000);
     expect(calc.loanShortfall).toBe(0);
     expect(calc.net).toBe(103840 - 20000);
+  });
+});
+
+/* ---------------------------------------------------------------------
+   elapsedWorkingDays — the fix for "cost of absence" billing the whole
+   month on day one. A daily rate divides by the month's FULL working
+   days; what someone should have worked BY NOW is a different number.
+   September 2026: 1st is a Tuesday, 30th a Wednesday, 22 weekdays.
+   --------------------------------------------------------------------- */
+describe("elapsedWorkingDays", () => {
+  const cal = { workingDaysMode: "calendar" };
+  const cal6 = { workingDaysMode: "calendar6" };
+  const fixed = { workingDays: 26 };
+
+  it("counts only weekdays up to and including today", () => {
+    // Thu 3 Sep 2026 → Tue 1, Wed 2, Thu 3.
+    expect(elapsedWorkingDays(cal, "2026-09", [], new Date(2026, 8, 3))).toBe(3);
+  });
+
+  it("does not count the weekend still ahead", () => {
+    // Fri 4 Sep → 4 weekdays; Sun 6 Sep → still 4, the weekend adds nothing.
+    expect(elapsedWorkingDays(cal, "2026-09", [], new Date(2026, 8, 4))).toBe(4);
+    expect(elapsedWorkingDays(cal, "2026-09", [], new Date(2026, 8, 6))).toBe(4);
+  });
+
+  it("skips a public holiday that has already passed", () => {
+    const hols = [{ date: "2026-09-02" }];
+    expect(elapsedWorkingDays(cal, "2026-09", hols, new Date(2026, 8, 3))).toBe(2);
+  });
+
+  it("counts Saturdays on a six-day week", () => {
+    // Sat 5 Sep → Tue–Sat is 5 days when only Sunday is off.
+    expect(elapsedWorkingDays(cal6, "2026-09", [], new Date(2026, 8, 5))).toBe(5);
+  });
+
+  it("returns the whole month once the month is over", () => {
+    expect(elapsedWorkingDays(cal, "2026-09", [], new Date(2026, 9, 1))).toBe(22);
+    expect(elapsedWorkingDays(fixed, "2026-09", [], new Date(2026, 9, 1))).toBe(26);
+  });
+
+  it("returns zero for a month that hasn't started", () => {
+    expect(elapsedWorkingDays(cal, "2026-10", [], new Date(2026, 8, 24))).toBe(0);
+  });
+
+  it("pro-rates a fixed working-days figure, and never exceeds it", () => {
+    // 15 of 30 days gone → half of 26.
+    expect(elapsedWorkingDays(fixed, "2026-09", [], new Date(2026, 8, 15))).toBe(13);
+    expect(elapsedWorkingDays(fixed, "2026-09", [], new Date(2026, 8, 30))).toBe(26);
+  });
+
+  it("never reports more elapsed than the month contains", () => {
+    for (let day = 1; day <= 30; day++) {
+      const e = elapsedWorkingDays(cal, "2026-09", [], new Date(2026, 8, day));
+      expect(e).toBeLessThanOrEqual(22);
+      expect(e).toBeGreaterThanOrEqual(0);
+    }
   });
 });

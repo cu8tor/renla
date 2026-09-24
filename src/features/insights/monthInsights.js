@@ -1,4 +1,4 @@
-import { resolveWorkingDays, excusedLateDatesFor, excursionDatesFor } from "../payroll/payrollEngine.js";
+import { resolveWorkingDays, elapsedWorkingDays, excusedLateDatesFor, excursionDatesFor } from "../payroll/payrollEngine.js";
 import { minutesBetween, shiftFor, lateMinutesAgainst, overtimeMinutes, effectiveWork } from "../attendance/attendanceLogic.js";
 import { grossOf, parseD, startOfToday } from "../../lib/format.js";
 
@@ -7,7 +7,23 @@ function isOnLeaveToday(leave, empId) {
   return leave.some((l) => l.empId === empId && l.status === "approved" && parseD(l.from) <= t && parseD(l.to) >= t);
 }
 const blankBalances = () => ({ annual: 20, sick: 10, comp: 5 });
-function monthInsights(db, employees, mKey) {
+
+// How much of an approved leave request has actually been taken by `today`.
+// Fully in the past → all of it. Entirely in the future → none. Straddling
+// today → pro-rated across the request's calendar span, which is as close
+// as we can get without knowing which individual days inside it were
+// working days.
+function elapsedLeaveDays(l, today) {
+  const from = parseD(l.from), to = parseD(l.to || l.from);
+  if (!from || from > today) return 0;
+  if (!to || to <= today) return l.days;
+  const span = Math.round((to - from) / 86400000) + 1;
+  const done = Math.round((today - from) / 86400000) + 1;
+  if (span <= 0) return l.days;
+  return Math.min(l.days, Math.round((l.days * done) / span));
+}
+
+function monthInsights(db, employees, mKey, today = startOfToday()) {
   const work = db.work || {};
   const payroll = db.payroll || {};
   const inMonth = (d) => (d || "").startsWith(mKey);
@@ -35,18 +51,27 @@ function monthInsights(db, employees, mKey) {
       } else noClockOut += 1;
     });
     const gross = grossOf(emp);
+    // Two different numbers, deliberately. The daily RATE divides a monthly
+    // salary by the month's full working days — that doesn't change just
+    // because the month is half over. What someone is EXPECTED to have
+    // worked so far is the elapsed count; using the full month mid-September
+    // treats every remaining day as an absence already taken.
     const workingDays = resolveWorkingDays(payroll, mKey, db.holidays || []);
+    const elapsedDays = elapsedWorkingDays(payroll, mKey, db.holidays || [], today);
     const dailyRate = workingDays ? Math.round(gross / workingDays) : 0;
     const scheduledMins = Math.max(60, minutesBetween(shift.start, shift.end) || 480);
     const hourly = dailyRate / (scheduledMins / 60);
 
+    // Leave still in the future hasn't been taken yet, so a 10-day booking
+    // starting tomorrow shouldn't be deducted today.
+    const takenSoFar = (l) => elapsedLeaveDays(l, today);
     const unpaid = (db.leave || []).filter((l) => l.empId === emp.id && l.status === "approved"
-      && l.type === "Unpaid" && inMonth(l.from)).reduce((t, l) => t + l.days, 0);
+      && l.type === "Unpaid" && inMonth(l.from)).reduce((t, l) => t + takenSoFar(l), 0);
     const paidLeave = (db.leave || []).filter((l) => l.empId === emp.id && l.status === "approved"
-      && l.type !== "Unpaid" && inMonth(l.from)).reduce((t, l) => t + l.days, 0);
+      && l.type !== "Unpaid" && inMonth(l.from)).reduce((t, l) => t + takenSoFar(l), 0);
     const credited = excursionDatesFor(db.permissions || [], emp.id, mKey)
       .filter((d) => !mine.some((a) => a.date === d)).length;
-    const expected = Math.max(0, workingDays - paidLeave);
+    const expected = Math.max(0, elapsedDays - paidLeave);
     const present = mine.length + credited;
     const absentDays = Math.max(0, expected - present - unpaid);
 
@@ -76,9 +101,9 @@ function monthInsights(db, employees, mKey) {
       .slice(0, 10),
   };
 }
-function branchBreakdown(db, employees, mKey) {
+function branchBreakdown(db, employees, mKey, today = startOfToday()) {
   const byBranch = {};
-  const ins = monthInsights(db, employees, mKey);
+  const ins = monthInsights(db, employees, mKey, today);
   ins.perPerson.forEach((x) => {
     const b = x.emp.branchId || "unassigned";
     if (!byBranch[b]) byBranch[b] = { staff: 0, present: 0, expected: 0, late: 0, absenceCost: 0 };

@@ -5,6 +5,7 @@ import { CHECK_KEYS, hasOverrides } from "../features/attendance/attendanceLogic
 import { naira, grossOf, fmtShort, copyText } from "../lib/format.js";
 import { emptyEmployee } from "../lib/payrollHelpers.js";
 import { onboardingChecklist } from "../lib/onboarding.js";
+import { sendInvite } from "../lib/supabase.js";
 import { Avatar, EmpAvatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
 
@@ -143,25 +144,73 @@ function DeleteEmployeeModal({ emp, onClose, onConfirm }) {
   );
 }
 
+/* A small copyable box — used for both the invite link and the staff code. */
+function CopyBox({ value, label, toast }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
+      <code style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, flex: 1, wordBreak: "break-all" }}>{value}</code>
+      <button className="cp-mini" onClick={async () => {
+        const ok = await copyText(value);
+        if (ok) toast(`${label} copied`);
+        else toast(`Couldn't copy automatically — here it is: ${value}`, "danger", 9000);
+      }}><Copy size={13} /> Copy</button>
+    </div>
+  );
+}
+
 function InviteEmployeeModal({ db, toast, onSave, onClose }) {
   const [f, setF] = useState({ name: "", email: "", phone: "", title: "", dept: "", managerId: "" });
   const [created, setCreated] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(null);   // { ok, link, error } | null
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
 
+  const emailed = Boolean(f.email.trim());
+
   if (created) {
+    const first = created.name.split(" ")[0];
     return (
       <Modal title="Employee added" onClose={onClose} onSubmit={onClose} submitLabel="Done">
-        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
-          <b>{created.name}</b> is in. Send them this staff code — they'll sign up with their own email and password and paste it in to link their account.
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
-          <code style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, flex: 1, wordBreak: "break-all" }}>{created.id}</code>
-          <button className="cp-mini" onClick={async () => {
-            const ok = await copyText(created.id);
-            if (ok) toast("Staff code copied — send it to " + created.name.split(" ")[0]);
-            else toast("Couldn't copy automatically — here's the code: " + created.id, "danger", 9000);
-          }}><Copy size={13} /> Copy</button>
-        </div>
+        {sending && (
+          <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
+            <b>{created.name}</b> is in — emailing their invite now…
+          </div>
+        )}
+
+        {!sending && sent?.ok && (
+          <>
+            <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
+              <b>{created.name}</b> is in, and an invite is on its way to <b>{created.email}</b>. They'll click the link, pick a password, and land straight in their account — no code to type.
+            </div>
+            <CopyBox value={sent.link} label="Invite link" toast={toast} />
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10, lineHeight: 1.55 }}>
+              The link is here too in case the email doesn't arrive. It expires in 7 days, works once, and only for {first}'s own email address — forwarding it to anyone else won't let them in.
+            </div>
+          </>
+        )}
+
+        {!sending && sent && !sent.ok && (
+          <>
+            <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
+              <b>{created.name}</b> is in, but the invite email didn't send. Nothing is lost — send them this link yourself and it works exactly the same.
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 14, lineHeight: 1.55 }}>{sent.error}</div>
+            <CopyBox value={sent.link} label="Invite link" toast={toast} />
+          </>
+        )}
+
+        {!sending && !sent && (
+          <>
+            <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
+              <b>{created.name}</b> is in. Send them this staff code — they'll sign up with their own email and password and paste it in to link their account.
+            </div>
+            <CopyBox value={created.id} label="Staff code" toast={toast} />
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10, lineHeight: 1.55 }}>
+              Add an email address to {first}'s record and you can send an invite link instead, which is both easier for them and safer — a staff code doesn't expire and works for whoever holds it.
+            </div>
+          </>
+        )}
+
         <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 14, lineHeight: 1.55 }}>
           Once they're in, they fill in the rest themselves — emergency contact, bank details, documents, a photo — from their own profile page. You can pick what's required under <b>Settings → Employee onboarding</b>, and invite another person any time from here.
         </div>
@@ -170,19 +219,47 @@ function InviteEmployeeModal({ db, toast, onSave, onClose }) {
   }
 
   return (
-    <Modal title="Invite employee" onClose={onClose} submitLabel="Create & get staff code"
-      onSubmit={() => {
+    <Modal title="Invite employee" onClose={onClose} submitLabel={emailed ? "Create & email invite" : "Create & get staff code"}
+      submitDisabled={sending}
+      onSubmit={async () => {
         if (!f.name.trim()) { toast("A name is required", "warn"); return; }
+        const email = f.email.trim();
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast("That doesn't look like a valid email address", "warn"); return; }
+
         const emp = { ...emptyEmployee(), ...f };
         onSave(emp);
-        setCreated({ id: emp.id, name: emp.name });
+        setCreated({ id: emp.id, name: emp.name, email });
+        if (!email) return;   // no email — staff code is the fallback
+
+        setSending(true);
+        try {
+          let out;
+          try {
+            out = await sendInvite({ employeeId: emp.id, email, name: emp.name });
+          } catch (e) {
+            // onSave writes optimistically, so the row may not have reached
+            // Postgres yet and create_invite can't find it. Give the sync one
+            // beat to catch up before treating it as a real failure.
+            if (/no longer exists/i.test(e.message)) {
+              await new Promise((r) => setTimeout(r, 1500));
+              out = await sendInvite({ employeeId: emp.id, email, name: emp.name });
+            } else throw e;
+          }
+          setSent(out);
+          if (out.ok) toast(`Invite emailed to ${email}`);
+          else toast(out.error, "warn", 9000);
+        } catch (e) {
+          setSent({ ok: false, link: "", error: e.message });
+          toast(e.message, "danger", 9000);
+        }
+        setSending(false);
       }}>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 16, lineHeight: 1.55 }}>
-        Just the basics — your new hire fills in the rest themselves once they sign in with the staff code you'll get next.
+        Just the basics — your new hire fills in the rest themselves once they're in. Add their email and we'll send the invite for you.
       </div>
       <div className="cp-form-grid">
         <Field label="Full name"><input className="cp-input" autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Bola Ade" /></Field>
-        <Field label="Email" hint="Optional"><input className="cp-input" value={f.email} onChange={(e) => set("email", e.target.value)} /></Field>
+        <Field label="Email" hint="We'll email them an invite link"><input className="cp-input" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="name@company.com" /></Field>
         <Field label="Phone" hint="Optional"><input className="cp-input" value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+234 …" /></Field>
         <Field label="Job title" hint="Optional"><input className="cp-input" value={f.title} onChange={(e) => set("title", e.target.value)} /></Field>
         <Field label="Department" hint="Optional, type a new one to create it">

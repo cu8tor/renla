@@ -69,6 +69,50 @@ const resolveWorkingDays = (payroll, mKey, holidays) => {
   return Number(payroll.workingDays) || 26;
 };
 
+// Working days that have actually HAPPENED so far in a month.
+//
+// resolveWorkingDays() answers "how many working days does this month
+// contain", which is the right divisor for a daily rate — pay is monthly,
+// so the rate doesn't shrink because the month is half over. It is the
+// wrong number for "how many days should this person have shown up by
+// now": used that way mid-month, every working day still in the future
+// counts as an absence, which both tanks the attendance percentage and
+// bills the company for days nobody has missed yet.
+//
+// Past month  → the whole month. Future month → 0. Current month → up to
+// and including today.
+function elapsedWorkingDays(payroll, mKey, holidays = [], today = new Date()) {
+  const [y, m] = mKey.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const cursorMonth = y * 12 + (m - 1);
+  const nowMonth = today.getFullYear() * 12 + today.getMonth();
+
+  if (cursorMonth < nowMonth) return resolveWorkingDays(payroll, mKey, holidays);
+  if (cursorMonth > nowMonth) return 0;
+
+  const throughDay = Math.min(lastDay, today.getDate());
+  const sixDay = payroll.workingDaysMode === "calendar6";
+
+  if (payroll.workingDaysMode === "calendar" || sixDay) {
+    let n = 0;
+    for (let day = 1; day <= throughDay; day++) {
+      const d = new Date(y, m - 1, day);
+      const wd = d.getDay();
+      if (sixDay ? wd === 0 : (wd === 0 || wd === 6)) continue;
+      if (holidays.some((h) => h.date === iso(d))) continue;
+      n++;
+    }
+    return n;
+  }
+
+  // Fixed working-days mode (e.g. a flat 26) isn't tied to real dates at
+  // all, so there's nothing exact to count — pro-rate by how much of the
+  // month has passed. Approximate by nature, and better than pretending
+  // the whole month is already behind us.
+  const full = Number(payroll.workingDays) || 26;
+  return Math.min(full, Math.round((full * throughDay) / lastDay));
+}
+
 /* Total minutes late across a month, measured against the company's opening time */
 function lateStatsFor(attendance, empId, mKey, work, excusedDates = []) {
   const open = hmToMin(work.dayStart) + (Number(work.graceMins) || 0);
@@ -235,7 +279,7 @@ function computePayslip(emp, payroll, extras = {}) {
 }
 
 export {
-  NTA2025_BANDS, DEFAULT_PAYROLL, calendarWorkingDays, resolveWorkingDays, amountInWords, emptyPay, payeAnnual, computePayslip,
+  NTA2025_BANDS, DEFAULT_PAYROLL, calendarWorkingDays, resolveWorkingDays, elapsedWorkingDays, amountInWords, emptyPay, payeAnnual, computePayslip,
   // Attendance/leave helpers that were bundled in the same original block and are consumed
   // by monthInsights and PayrollPage's extras-building step (fixed after a live-render check
   // caught they'd been silently dropped from App.jsx's imports — see delivery notes).

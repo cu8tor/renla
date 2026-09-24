@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer, Building2, KeyRound, ChevronLeft, Eye, EyeOff } from "lucide-react";
-import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany, requestPasswordReset, updatePassword } from "../lib/supabase.js";
+import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany, acceptInvite, requestPasswordReset, updatePassword } from "../lib/supabase.js";
 import { Card, Btn, Field, Dot } from "../components/ui.jsx";
 import { StyleTag } from "../components/StyleTag.jsx";
 import renlaLogoWhite from "../assets/renla-logo-white.png";
@@ -245,6 +245,35 @@ function NewCompany({ theme, dark, setDark, profile }) {
   // and only shows a form once they've actually chosen one.
   const [choice, setChoice] = useState(null); // null | "create" | "join"
 
+  // Someone arriving from an emailed invite link shouldn't be asked to
+  // choose anything — App.jsx stashed the token before the confirmation
+  // email round-trip stripped it from the URL, so claim it and go.
+  const [claiming, setClaiming] = useState(() => {
+    try { return Boolean(localStorage.getItem("renla.invite")); } catch { return false; }
+  });
+
+  useEffect(() => {
+    let token = null;
+    try { token = localStorage.getItem("renla.invite"); } catch { /* storage off */ }
+    if (!token) return;
+    (async () => {
+      try {
+        await acceptInvite(token);
+        try { localStorage.removeItem("renla.invite"); } catch { /* ignore */ }
+        window.location.replace("/dashboard");
+      } catch (e) {
+        // Every failure accept_invite can raise is terminal — expired,
+        // already used, cancelled, or claimed from the wrong address.
+        // Drop the token so they aren't stuck retrying it forever, show
+        // why, and let them fall through to the normal choice screen
+        // where the staff-code path still works.
+        try { localStorage.removeItem("renla.invite"); } catch { /* ignore */ }
+        setErr(e.message);
+        setClaiming(false);
+      }
+    })();
+  }, []);
+
   const create = async () => {
     if (!f.company.trim() || !f.name.trim()) { setErr("Fill in your company name and your own name."); return; }
     setErr(""); setBusy(true);
@@ -261,10 +290,18 @@ function NewCompany({ theme, dark, setDark, profile }) {
 
   const back = () => { setChoice(null); setErr(""); };
 
+  if (claiming) {
+    return (
+      <AuthShell theme={theme} dark={dark} setDark={setDark} badge={profile.email}
+        title="Setting up your account" blurb="One moment — linking you to your company." />
+    );
+  }
+
   if (choice === null) {
     return (
       <AuthShell theme={theme} dark={dark} setDark={setDark} badge={profile.email}
         title="One more step" blurb="Have a staff code from your HR team? You're joining a company they've already set up. Otherwise, you're setting one up for the first time.">
+        {err && <div style={{ fontSize: 13, color: "var(--danger)", marginTop: 18 }}>{err}</div>}
         <div className="cp-choice-row" style={{ marginTop: 22 }}>
           <button className="cp-choice-card" onClick={() => setChoice("create")}>
             <span className="cp-choice-ic"><Building2 size={19} /></span>

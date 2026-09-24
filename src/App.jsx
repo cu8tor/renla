@@ -71,6 +71,17 @@ import { LeaderboardPage } from "./pages/LeaderboardPage.jsx";
    renders the Router itself. Keeping the Router here means App.jsx stays
    fully self-contained; nothing about the real project's main.jsx/entry
    point needs to change. */
+/* An invite link is /join?invite=TOKEN. Signup requires email confirmation,
+   and that round-trip returns the person to the Site URL with the query
+   string gone — so the token can't just live in the URL. Grab it at module
+   load, before anything renders or redirects, and let NewCompany claim it
+   once there's a session. The catch-all "*" route already sends /join to
+   the dashboard, where the auth gate takes over. */
+try {
+  const inviteToken = new URLSearchParams(window.location.search).get("invite");
+  if (inviteToken) localStorage.setItem("renla.invite", inviteToken);
+} catch { /* private mode / storage disabled — they can still use a staff code */ }
+
 export default function App() {
   return (
     <BrowserRouter>

@@ -1,4 +1,5 @@
-import { Users, CalendarDays, Clock3, ChevronRight, Cake, Pin, PartyPopper, Users2, BadgeCheck, UserPlus, Timer, AlertTriangle, ShieldAlert, Banknote, PartyPopper as Confetti, ClipboardCheck } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Users, CalendarDays, Clock3, ChevronRight, Cake, Pin, PartyPopper, Users2, BadgeCheck, UserPlus, Timer, AlertTriangle, ShieldAlert, Banknote, PartyPopper as Confetti, ClipboardCheck, ChevronLeft } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell, PieChart, Pie } from "recharts";
 import { durLabel, shiftFor, lateMinutesAgainst } from "../features/attendance/attendanceLogic.js";
 import { MONTHS, naira, parseD, todayISO, startOfToday, fmtShort, fmtLong, DEPT_COLORS } from "../lib/format.js";
@@ -47,83 +48,52 @@ function narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLea
   return parts.length ? parts.join(" · ") : "here's where things stand.";
 }
 
-function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday, myTodayAtt, performClockIn, clockOut, locating, myDeviceOk, myDeviceRecord }) {
-  const hr = new Date().getHours();
-  const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
-  const myLeave = myEmp ? db.leave.filter((l) => l.empId === myEmp.id) : [];
-  const narrative = narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLeaveNow, upcomingHols, myLeave });
-  const myDocs = myEmp ? (db.employeeDocs || []).filter((d) => d.empId === myEmp.id) : [];
-  const myChecklist = myEmp ? onboardingChecklist(myEmp, db.onboarding, myDocs) : null;
+/* The month panel keeps its own cursor so HR can page back through closed
+   months, not just look at the one in progress. Offset 0 is the current
+   month; it can't go forward past that, and can't go back past the oldest
+   record there is. */
+function MonthInsightsCard({ db, isHR, myTeam }) {
+  const [offset, setOffset] = useState(0);
+
+  const now = new Date();
+  const cursor = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+  const mKey = monthKey(cursor);
+
+  // How far back there's anything worth showing. Attendance and leave are
+  // what this panel measures, so those decide the floor.
+  const maxBack = useMemo(() => {
+    const keys = [
+      ...(db.attendance || []).map((a) => a.date),
+      ...(db.leave || []).map((l) => l.from),
+    ].filter(Boolean).map((d) => d.slice(0, 7)).sort();
+    if (!keys.length) return 0;
+    const [y, m] = keys[0].split("-").map(Number);
+    return Math.max(0, (now.getFullYear() * 12 + now.getMonth()) - (y * 12 + (m - 1)));
+  }, [db.attendance, db.leave]);
+
+  const scope = isHR ? db.employees : myTeam;
+  if (!scope.length) return null;
+
+  const ins = monthInsights(db, scope, mKey);
+  const branches = isHR ? branchBreakdown(db, db.employees, mKey) : [];
+
   return (
-    <div className="cp-fade">
-      {myBirthdayToday && (
-        <Card style={{ marginBottom: 18, background: "var(--brand-soft)", border: "1px solid var(--brand)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Confetti size={22} style={{ color: "var(--brand)", flex: "0 0 auto" }} />
-            <div>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>Happy birthday, {me.name.split(" ")[0]}! 🎉</div>
-              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Everyone here hopes you have a great one.</div>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {myChecklist && myChecklist.requiredTotal > 0 && !myChecklist.complete && !myEmp?.profileLocked && (
-        <Card style={{ marginBottom: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <ClipboardCheck size={20} style={{ color: "var(--accent)", flex: "0 0 auto" }} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Finish setting up your profile</div>
-                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{myChecklist.requiredDone} of {myChecklist.requiredTotal} required items done.</div>
-              </div>
-            </div>
-            <Btn size="sm" variant="ghost" onClick={() => go("profile")}>Complete profile</Btn>
-          </div>
-        </Card>
-      )}
-
-      <div style={{ marginBottom: 22 }}>
-        <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>{greeting}, {me.name.split(" ")[0]}</h2>
-        <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>{fmtLong(todayISO())} · {narrative}</p>
-      </div>
-
-      {/* Clocking in shouldn't require a trip to a separate page — this is
-          the same card Attendance uses, so it's the exact same rules and
-          the exact same click either place. */}
-      <ClockCard db={db} myEmp={myEmp} myTodayAtt={myTodayAtt} performClockIn={performClockIn} clockOut={clockOut}
-        locating={locating} myDeviceOk={myDeviceOk} myDeviceRecord={myDeviceRecord} />
-
-      <div className="cp-tiles">
-        {isHR && <>
-          <Stat icon={Users} label="Total employees" value={total} sub={`${deptData.length} departments`} />
-          <Stat icon={Timer} label="Clocked in now" value={db.attendance.filter((a) => a.date === todayISO() && a.clockIn && !a.clockOut).length} sub="Currently working" />
-          <Stat icon={CalendarDays} label="On leave today" value={onLeaveNow.length} sub={onLeaveNow.map((e) => e.name.split(" ")[0]).join(", ") || "Nobody"} tone="accent" />
-          <Stat icon={Clock3} label="Awaiting your sign-off" value={pendingForMe.length} sub="Leave requests" tone="accent" />
-        </>}
-        {isManager && <>
-          <Stat icon={Users2} label="My team" value={myTeam.length} sub={myTeam.map((m) => m.name.split(" ")[0]).join(", ") || "Nobody assigned yet"} />
-          <Stat icon={BadgeCheck} label="Present today" value={myTeam.filter((m) => !isOnLeaveToday(db.leave, m.id)).length} sub="of your team" />
-          <Stat icon={Clock3} label="Awaiting approval" value={pendingForMe.length} sub="From your team" tone="accent" />
-          <Stat icon={Cake} label="Team birthdays" value={upcomingBdays.filter((b) => myTeam.some((m) => m.id === b.e.id)).length} sub="Next 30 days" tone="accent" />
-        </>}
-        {!isHR && !isManager && myEmp && <>
-          <Stat icon={CalendarDays} label="Annual leave left" value={`${myEmp.bal.annual} days`} />
-          <Stat icon={BadgeCheck} label="Sick days left" value={`${myEmp.bal.sick} days`} />
-          <Stat icon={Clock3} label="My open requests" value={myLeave.filter((l) => l.status.startsWith("pending")).length} sub="Awaiting approval" tone="accent" />
-          <Stat icon={PartyPopper} label="Next holiday" value={upcomingHols[0] ? `${upcomingHols[0].diff}d` : "—"} sub={upcomingHols[0]?.name} tone="accent" />
-        </>}
-      </div>
-
-      {(isHR || isManager) && (() => {
-        const mKey = monthKey(new Date());
-        const scope = isHR ? db.employees : myTeam;
-        if (!scope.length) return null;
-        const ins = monthInsights(db, scope, mKey);
-        const branches = isHR ? branchBreakdown(db, db.employees, mKey) : [];
-        return (
           <Card style={{ marginTop: 18 }}>
-            <Section title={`This month · ${monthLabel(mKey)}`}>
+            <Section
+              title={offset === 0 ? `This month · ${monthLabel(mKey)}` : monthLabel(mKey)}
+              action={
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button className="cp-icon-btn" title="Earlier month" aria-label="Earlier month"
+                    disabled={offset >= maxBack} onClick={() => setOffset((o) => Math.min(maxBack, o + 1))}>
+                    <ChevronLeft size={15} />
+                  </button>
+                  {offset > 0 && <button className="cp-link" onClick={() => setOffset(0)}>This month</button>}
+                  <button className="cp-icon-btn" title="Later month" aria-label="Later month"
+                    disabled={offset === 0} onClick={() => setOffset((o) => Math.max(0, o - 1))}>
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
+              }>
               <div className="cp-tiles" style={{ marginBottom: 18 }}>
                 <Stat icon={AlertTriangle} label="Late arrivals" value={ins.lateArrivals} sub={durLabel(ins.lateMinutes) + " lost"} tone="accent" />
                 <Stat icon={Banknote} label="Cost of absence" value={naira(ins.absenceCost)} sub="Unexplained + unpaid days" tone="accent" />
@@ -134,7 +104,7 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
               <div className="cp-two-col">
                 <div>
                   <div className="cp-slip-head">Most punctual</div>
-                  {ins.mostPunctual.length === 0 ? <Empty text="No attendance recorded yet this month." /> : (
+                  {ins.mostPunctual.length === 0 ? <Empty text={offset === 0 ? "No attendance recorded yet this month." : `No attendance was recorded in ${monthLabel(mKey)}.`} /> : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                       {ins.mostPunctual.slice(0, 10).map((x, i) => (
                         <div key={x.emp.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -175,8 +145,87 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
               </div>
             </Section>
           </Card>
-        );
-      })()}
+  );
+}
+
+function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, onLeaveNow, pendingForMe, upcomingBdays, upcomingHols, deptData, db, theme, empById, decideLeave, go, employees, myBirthdayToday, myTodayAtt, performClockIn, clockOut, locating, myDeviceOk, myDeviceRecord }) {
+  const hr = new Date().getHours();
+  const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
+  const myLeave = myEmp ? db.leave.filter((l) => l.empId === myEmp.id) : [];
+  const narrative = narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLeaveNow, upcomingHols, myLeave });
+  const myDocs = myEmp ? (db.employeeDocs || []).filter((d) => d.empId === myEmp.id) : [];
+  const myChecklist = myEmp ? onboardingChecklist(myEmp, db.onboarding, myDocs) : null;
+  // The checklist already knows which specific items are outstanding, so name
+  // them here rather than only showing a count — "2 of 5 done" doesn't tell
+  // anyone what to actually go and do.
+  const myMissing = myChecklist ? myChecklist.items.filter((i) => i.required && !i.done) : [];
+  return (
+    <div className="cp-fade">
+      {myBirthdayToday && (
+        <Card style={{ marginBottom: 18, background: "var(--brand-soft)", border: "1px solid var(--brand)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Confetti size={22} style={{ color: "var(--brand)", flex: "0 0 auto" }} />
+            <div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>Happy birthday, {me.name.split(" ")[0]}! 🎉</div>
+              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Everyone here hopes you have a great one.</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {myChecklist && myChecklist.requiredTotal > 0 && !myChecklist.complete && !myEmp?.profileLocked && (
+        <Card style={{ marginBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <ClipboardCheck size={20} style={{ color: "var(--accent)", flex: "0 0 auto" }} />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Finish setting up your profile</div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
+                  {myMissing.length} {myMissing.length === 1 ? "item" : "items"} left · {myChecklist.requiredDone} of {myChecklist.requiredTotal} done
+                </div>
+              </div>
+            </div>
+            <Btn size="sm" variant="ghost" onClick={() => go("profile")}>Complete profile</Btn>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12, paddingLeft: 32 }}>
+            {myMissing.map((i) => <Badge key={i.key} tone="warn">{i.label}</Badge>)}
+          </div>
+        </Card>
+      )}
+
+      <div style={{ marginBottom: 22 }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>{greeting}, {me.name.split(" ")[0]}</h2>
+        <p style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>{fmtLong(todayISO())} · {narrative}</p>
+      </div>
+
+      {/* Clocking in shouldn't require a trip to a separate page — this is
+          the same card Attendance uses, so it's the exact same rules and
+          the exact same click either place. */}
+      <ClockCard db={db} myEmp={myEmp} myTodayAtt={myTodayAtt} performClockIn={performClockIn} clockOut={clockOut}
+        locating={locating} myDeviceOk={myDeviceOk} myDeviceRecord={myDeviceRecord} />
+
+      <div className="cp-tiles">
+        {isHR && <>
+          <Stat icon={Users} label="Total employees" value={total} sub={`${deptData.length} departments`} />
+          <Stat icon={Timer} label="Clocked in now" value={db.attendance.filter((a) => a.date === todayISO() && a.clockIn && !a.clockOut).length} sub="Currently working" />
+          <Stat icon={CalendarDays} label="On leave today" value={onLeaveNow.length} sub={onLeaveNow.map((e) => e.name.split(" ")[0]).join(", ") || "Nobody"} tone="accent" />
+          <Stat icon={Clock3} label="Awaiting your sign-off" value={pendingForMe.length} sub="Leave requests" tone="accent" />
+        </>}
+        {isManager && <>
+          <Stat icon={Users2} label="My team" value={myTeam.length} sub={myTeam.map((m) => m.name.split(" ")[0]).join(", ") || "Nobody assigned yet"} />
+          <Stat icon={BadgeCheck} label="Present today" value={myTeam.filter((m) => !isOnLeaveToday(db.leave, m.id)).length} sub="of your team" />
+          <Stat icon={Clock3} label="Awaiting approval" value={pendingForMe.length} sub="From your team" tone="accent" />
+          <Stat icon={Cake} label="Team birthdays" value={upcomingBdays.filter((b) => myTeam.some((m) => m.id === b.e.id)).length} sub="Next 30 days" tone="accent" />
+        </>}
+        {!isHR && !isManager && myEmp && <>
+          <Stat icon={CalendarDays} label="Annual leave left" value={`${myEmp.bal.annual} days`} />
+          <Stat icon={BadgeCheck} label="Sick days left" value={`${myEmp.bal.sick} days`} />
+          <Stat icon={Clock3} label="My open requests" value={myLeave.filter((l) => l.status.startsWith("pending")).length} sub="Awaiting approval" tone="accent" />
+          <Stat icon={PartyPopper} label="Next holiday" value={upcomingHols[0] ? `${upcomingHols[0].diff}d` : "—"} sub={upcomingHols[0]?.name} tone="accent" />
+        </>}
+      </div>
+
+      {(isHR || isManager) && <MonthInsightsCard db={db} isHR={isHR} myTeam={myTeam} />}
 
       <div className="cp-two-col" style={{ marginTop: 18 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
