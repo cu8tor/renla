@@ -11,8 +11,15 @@ import { signedUrl } from "../lib/supabase.js";
 function Avatar({ name, size = 36, tone = "brand", photo }) {
   const bg = tone === "brand" ? "var(--brand-soft)" : "var(--accent-soft)";
   const fg = tone === "brand" ? "var(--brand)" : "var(--accent)";
-  if (photo) {
-    return <img src={photo} alt={name || ""} style={{ width: size, height: size, borderRadius: size, objectFit: "cover", flex: "0 0 auto" }} />;
+  // A photo that fails to load falls back to initials rather than leaving
+  // a broken-image icon in the middle of a directory row. Happens whenever
+  // a stored file has gone but the record still points at it — a deleted
+  // avatar, a storage clear-out, or an expired signed URL.
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [photo]);
+  if (photo && !broken) {
+    return <img src={photo} alt={name || ""} onError={() => setBroken(true)}
+      style={{ width: size, height: size, borderRadius: size, objectFit: "cover", flex: "0 0 auto" }} />;
   }
   return <div style={{ width: size, height: size, borderRadius: size, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontWeight: 600, fontSize: size * 0.38, flex: "0 0 auto" }}>{initials(name)}</div>;
 }

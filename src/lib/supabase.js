@@ -3,6 +3,7 @@
    ===================================================================== */
 
 import { createClient } from "@supabase/supabase-js";
+import { downscaleToSquare } from "./image.js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -33,7 +34,15 @@ export async function signUp(email, password) {
   return data;
 }
 
-export const signOut = () => supabase.auth.signOut();
+/* Clears the persisted signed-URL cache on the way out. Those URLs are
+   bearer tokens — anyone holding one can fetch the file without logging
+   in — so they must not survive into the next person's session on a
+   shared or company device. Defined here and called below; the cache
+   itself lives further down the file. */
+export const signOut = async () => {
+  clearSignedUrlCache();
+  return supabase.auth.signOut();
+};
 
 /* Sends a password-reset email. The link it contains brings the person
    back to this same app with a Supabase recovery session already active —
@@ -383,7 +392,12 @@ export async function uploadDocument(file, companyId) {
    avatars_write storage policy in catch-up-migration-6.sql) — HR can set
    one for someone else too. */
 export async function uploadAvatar(dataUrl, companyId, employeeId) {
-  const blob = await (await fetch(dataUrl)).blob();
+  // Downscale before upload, not after. Renla never renders an avatar
+  // above 72px, so storing the phone's original 4MB shot means paying to
+  // send it again on every directory row, leaderboard entry and birthday
+  // card that shows that face.
+  const small = await downscaleToSquare(dataUrl, 320);
+  const blob = await (await fetch(small)).blob();
   const path = `${companyId}/${employeeId}/avatar-${Date.now()}.jpg`;
   const { error } = await supabase.storage
     .from("avatars")
@@ -408,8 +422,51 @@ export async function uploadEmployeeDocument(file, companyId, employeeId) {
   return path;
 }
 
+/* Signed URLs, cached in memory AND across page loads.
+   
+   A signed URL carries a one-off token, so minting a new one for the same
+   file produces a different URL — which the browser and the CDN both treat
+   as a brand new object and download again from scratch. The in-memory Map
+   alone died on every refresh, so every boot re-downloaded every avatar and
+   document already sitting in the browser's own HTTP cache. Persisting the
+   URL string means the same URL comes back, and the cached bytes get used.
+
+   Only the URL is stored, never file contents, and each entry carries its
+   own expiry so a stale token is never handed out. */
+const URL_CACHE_KEY = "renla.signedUrls";
 const urlCache = new Map();
-export async function signedUrl(bucket, path, seconds = 3600) {
+
+try {
+  const saved = JSON.parse(localStorage.getItem(URL_CACHE_KEY) || "{}");
+  const now = Date.now();
+  Object.entries(saved).forEach(([k, v]) => {
+    if (v && v.expires > now) urlCache.set(k, v);
+  });
+} catch { /* unreadable or private mode — start empty, nothing breaks */ }
+
+export function clearSignedUrlCache() {
+  urlCache.clear();
+  try { localStorage.removeItem(URL_CACHE_KEY); } catch { /* nothing to clear */ }
+}
+
+let persistTimer = null;
+function persistUrlCache() {
+  // Debounced: a directory render can resolve thirty avatars at once and
+  // there is no sense serialising the map thirty times.
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    try {
+      const now = Date.now();
+      const out = {};
+      urlCache.forEach((v, k) => { if (v.expires > now) out[k] = v; });
+      localStorage.setItem(URL_CACHE_KEY, JSON.stringify(out));
+    } catch { /* quota or private mode — the in-memory cache still works */ }
+  }, 400);
+}
+
+// 8 hours rather than 1: covers a full working day, so someone who opens
+// Renla in the morning isn't re-downloading the same faces after lunch.
+export async function signedUrl(bucket, path, seconds = 28800) {
   if (!path) return "";
   const cacheKey = bucket + "|" + path;
   const hit = urlCache.get(cacheKey);
@@ -417,5 +474,6 @@ export async function signedUrl(bucket, path, seconds = 3600) {
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, seconds);
   if (error || !data) return "";
   urlCache.set(cacheKey, { url: data.signedUrl, expires: Date.now() + (seconds - 60) * 1000 });
+  persistUrlCache();
   return data.signedUrl;
 }
