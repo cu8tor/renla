@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { initials } from "../lib/format.js";
 import { signedUrl } from "../lib/supabase.js";
@@ -111,9 +111,25 @@ function Empty({ text, action }) {
 }
 function Dot({ c }) { return <span style={{ width: 8, height: 8, borderRadius: 8, background: c, display: "inline-block" }} />; }
 function Modal({ title, children, onClose, onSubmit, submitLabel, wide, submitDisabled, danger }) {
+  // Clicking the backdrop used to close any modal, which quietly threw away
+  // a half-filled form on a stray click beside the box. A modal with a
+  // submit action is a form, so it now only closes through Cancel or the X —
+  // deliberate actions. Read-only modals keep the convenience.
+  //
+  // The mousedown check matters even there: dragging to select text inside
+  // an input and releasing outside the box registers as a backdrop click,
+  // so only a press that STARTED on the backdrop counts.
+  const downOnBackdrop = useRef(false);
+  const backdropDown = (e) => { downOnBackdrop.current = e.target === e.currentTarget; };
+  const backdropUp = (e) => {
+    const started = downOnBackdrop.current;
+    downOnBackdrop.current = false;
+    if (!onSubmit && started && e.target === e.currentTarget) onClose();
+  };
+
   return (
-    <div className="cp-modal-wrap" onClick={onClose}>
-      <div className={"cp-modal" + (wide ? " wide" : "")} onClick={(e) => e.stopPropagation()}>
+    <div className="cp-modal-wrap" onMouseDown={backdropDown} onMouseUp={backdropUp}>
+      <div className={"cp-modal" + (wide ? " wide" : "")}>
         <div className="cp-modal-head">
           <h3 style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 700, margin: 0 }}>{title}</h3>
           <button className="cp-icon-btn" onClick={onClose}><X size={16} /></button>
