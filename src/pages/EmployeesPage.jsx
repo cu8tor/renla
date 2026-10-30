@@ -189,13 +189,31 @@ function InviteEmployeeModal({ db, toast, onSave, onClose }) {
           </>
         )}
 
-        {!sending && sent && !sent.ok && (
+        {/* The invite was created but the email didn't go out. The link is
+            real, so hand it over and let HR send it themselves. */}
+        {!sending && sent && !sent.ok && sent.link && (
           <>
             <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
               <b>{created.name}</b> is in, but the invite email didn't send. Nothing is lost — send them this link yourself and it works exactly the same.
             </div>
             <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 14, lineHeight: 1.55 }}>{sent.error}</div>
             <CopyBox value={sent.link} label="Invite link" toast={toast} />
+          </>
+        )}
+
+        {/* No link at all means the request never reached the server, so no
+            invite was ever created. Offering an empty box and telling HR to
+            "send them this link" is nonsense — fall back to the staff code,
+            which needs nothing deployed and still gets the person in. */}
+        {!sending && sent && !sent.ok && !sent.link && (
+          <>
+            <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
+              <b>{created.name}</b> is in, but the invite couldn't be sent — send them this staff code instead. They'll sign up with their own email and password and paste it in to link their account.
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 14, lineHeight: 1.55 }}>
+              {/^failed to fetch$/i.test(sent.error || "") ? "Couldn't reach the invite service." : sent.error}
+            </div>
+            <CopyBox value={created.id} label="Staff code" toast={toast} />
           </>
         )}
 
