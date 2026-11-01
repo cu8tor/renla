@@ -27,7 +27,7 @@
 --    avatars        2 MB   client produces ~15–50 KB after downscaling
 --    selfies        2 MB   client produces ~10–20 KB (180px, q0.55)
 --    employee-docs  10 MB  matches EMPLOYEE_DOC_MAX_BYTES in supabase.js
---    documents      25 MB  matches the existing check in DocsPage.jsx
+--    documents      10 MB  matches the check in DocsPage.jsx
 --
 --  Existing files larger than these limits are NOT deleted or affected.
 --  The limit applies to new uploads only.
@@ -36,7 +36,7 @@
 update storage.buckets set file_size_limit =  2 * 1024 * 1024 where id = 'avatars';
 update storage.buckets set file_size_limit =  2 * 1024 * 1024 where id = 'selfies';
 update storage.buckets set file_size_limit = 10 * 1024 * 1024 where id = 'employee-docs';
-update storage.buckets set file_size_limit = 25 * 1024 * 1024 where id = 'documents';
+update storage.buckets set file_size_limit = 10 * 1024 * 1024 where id = 'documents';
 
 -- Images only, for the two buckets that can only ever hold a photo. A
 -- PDF or an HTML file has no business in either, and refusing them here

@@ -62,7 +62,7 @@ function DocsPage({ db, isHR, addDoc, deleteDoc, toast, companyId }) {
                 onChange={async (e) => {
                   const file = e.target.files && e.target.files[0];
                   if (!file) return;
-                  if (file.size > 25 * 1024 * 1024) { toast("That file is over 25 MB", "warn"); return; }
+                  if (file.size > 10 * 1024 * 1024) { toast("That file is over 10 MB — try saving the PDF at a smaller size", "warn"); return; }
                   setUploading(true);
                   try {
                     const path = await uploadDocument(file, companyId);
