@@ -3,7 +3,7 @@
    ===================================================================== */
 
 import { createClient } from "@supabase/supabase-js";
-import { downscaleToSquare } from "./image.js";
+import { downscaleToSquare, shrinkImageFile, prettySize } from "./image.js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -424,9 +424,14 @@ export async function deleteSelfies(paths) {
 }
 
 export async function uploadDocument(file, companyId) {
-  const safe = file.name.replace(/[^\w.\-]/g, "_");
+  // DocsPage already refuses anything over 25MB, which stops the worst
+  // case. This catches the ordinary one: a photographed policy or
+  // handbook page at full camera resolution, well under the cap and
+  // still ten times larger than it needs to be.
+  const small = await shrinkImageFile(file, 2000);
+  const safe = small.name.replace(/[^\w.\-]/g, "_");
   const path = `${companyId}/${Date.now()}-${safe}`;
-  const { error } = await supabase.storage.from("documents").upload(path, file);
+  const { error } = await supabase.storage.from("documents").upload(path, small);
   if (error) throw error;
   return path;
 }
@@ -465,10 +470,29 @@ export async function removeFiles(bucket, paths) {
 /* KYC/ID/reference-letter uploads for the self-service onboarding
    profile — a plain browser File this time (a document, not a captured
    photo), unlike uploadSelfie/uploadAvatar which take a data URL. */
+/* The hard ceiling for anything an employee uploads about themselves.
+   Generous for a real scan or a PDF, and far below what an unshrunk
+   phone photo of an ID would be. Mirrored as a server-side bucket limit
+   in catch-up-migration-12.sql, since a browser check only stops honest
+   mistakes. */
+export const EMPLOYEE_DOC_MAX_BYTES = 10 * 1024 * 1024;
+
 export async function uploadEmployeeDocument(file, companyId, employeeId) {
-  const safe = file.name.replace(/[^\w.\-]/g, "_");
+  // Phone cameras produce 8–12 MB images, and this bucket had no limit of
+  // any kind — the same oversight that put 8.92 MB avatars into storage
+  // and burned 2 GB of egress. Shrink first (no crop, so an ID stays
+  // readable), then refuse anything still oversized rather than letting
+  // it through silently.
+  const small = await shrinkImageFile(file, 1600);
+  if (small.size > EMPLOYEE_DOC_MAX_BYTES) {
+    throw new Error(
+      `That file is ${prettySize(small.size)} — the limit is ${prettySize(EMPLOYEE_DOC_MAX_BYTES)}. ` +
+      `Try a photo instead of a scan, or save the PDF at a smaller size.`,
+    );
+  }
+  const safe = small.name.replace(/[^\w.\-]/g, "_");
   const path = `${companyId}/${employeeId}/${Date.now()}-${safe}`;
-  const { error } = await supabase.storage.from("employee-docs").upload(path, file);
+  const { error } = await supabase.storage.from("employee-docs").upload(path, small);
   if (error) throw error;
   return path;
 }

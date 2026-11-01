@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Camera, FileText, Trash2, Check, Phone, Users, Landmark, ShieldCheck, Lock, Download } from "lucide-react";
-import { signedUrl } from "../lib/supabase.js";
+import { signedUrl, EMPLOYEE_DOC_MAX_BYTES } from "../lib/supabase.js";
+import { prettySize } from "../lib/image.js";
 import { onboardingChecklist } from "../lib/onboarding.js";
 import { EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty } from "../components/ui.jsx";
 import { FormGroup } from "./EmployeesPage.jsx";
@@ -125,10 +126,18 @@ function DocUploader({ onUpload, locked }) {
           </select>
         </Field>
       </div>
-      <label className="cp-btn cp-btn-primary cp-btn-md" style={{ cursor: "pointer", display: "inline-flex" }}>
-        {busy ? "Uploading…" : "Upload file"}
-        <input type="file" onChange={pick} disabled={busy} style={{ display: "none" }} />
-      </label>
+      <div>
+        <label className="cp-btn cp-btn-primary cp-btn-md" style={{ cursor: "pointer", display: "inline-flex" }}>
+          {busy ? "Working…" : "Upload file"}
+          <input type="file" accept="image/*,.pdf,.doc,.docx" onChange={pick} disabled={busy} style={{ display: "none" }} />
+        </label>
+        {/* Said up front rather than after a failed upload. Photos are
+            resized automatically, so in practice only a large PDF ever
+            meets the limit. */}
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 7, lineHeight: 1.5 }}>
+          Photos are resized automatically. Up to {prettySize(EMPLOYEE_DOC_MAX_BYTES)} per file.
+        </div>
+      </div>
     </div>
   );
 }

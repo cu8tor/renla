@@ -47,3 +47,72 @@ export function downscaleToSquare(dataUrl, size = 320, quality = 0.82) {
     } catch { resolve(dataUrl); }
   });
 }
+
+/* Shrink a picked image File so it's a sensible size to store, WITHOUT
+   cropping it. Returns a new File, or the original if it's already small
+   enough, isn't an image, or can't be decoded.
+
+   Deliberately different from downscaleToSquare above, in two ways that
+   matter for documents:
+
+   - No crop. An avatar can lose its edges; an ID card cannot. The whole
+     frame is kept and only the scale changes.
+   - A much larger target. 1600px on the long edge keeps the small print
+     on a driving licence or an NIN slip readable, which is the entire
+     point of the upload. That typically lands around 300–600 KB, from
+     an original of 8–12 MB.
+
+   Non-images (PDFs, Word files) pass straight through untouched —
+   there's nothing useful to do to them in a browser, and a size cap
+   handles the rest. */
+export function shrinkImageFile(file, maxEdge = 1600, quality = 0.85) {
+  return new Promise((resolve) => {
+    try {
+      if (!file || !file.type || !file.type.startsWith("image/")) return resolve(file);
+
+      const url = URL.createObjectURL(file);
+      const cleanup = () => { try { URL.revokeObjectURL(url); } catch { /* already gone */ } };
+
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const { width: w, height: h } = img;
+          if (!w || !h) { cleanup(); return resolve(file); }
+
+          // Never upscale, and don't bother re-encoding something that's
+          // already small — re-encoding a clean 200 KB scan can make it
+          // bigger, not smaller.
+          const scale = Math.min(1, maxEdge / Math.max(w, h));
+          if (scale === 1 && file.size <= 1_000_000) { cleanup(); return resolve(file); }
+
+          const c = document.createElement("canvas");
+          c.width = Math.max(1, Math.round(w * scale));
+          c.height = Math.max(1, Math.round(h * scale));
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+
+          c.toBlob((blob) => {
+            cleanup();
+            // If the re-encode somehow came out bigger, keep the original.
+            if (!blob || blob.size >= file.size) return resolve(file);
+            const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+            resolve(new File([blob], name, { type: "image/jpeg", lastModified: Date.now() }));
+          }, "image/jpeg", quality);
+        } catch (e) {
+          cleanup();
+          console.warn("[renla] document image shrink failed on canvas", e);
+          resolve(file);
+        }
+      };
+      img.onerror = () => {
+        cleanup();
+        console.warn("[renla] document image shrink failed: image could not be decoded");
+        resolve(file);
+      };
+      img.src = url;
+    } catch { resolve(file); }
+  });
+}
+
+/* For error messages — "12.4 MB" reads better than a byte count. */
+export const prettySize = (bytes) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
