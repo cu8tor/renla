@@ -80,7 +80,11 @@ function AvatarUpload({ emp, onUpload, locked }) {
           <Camera size={14} /> {locked ? "Locked by HR" : busy ? "Uploading…" : emp?.avatarPath ? "Change photo" : "Add a photo"}
           <input type="file" accept="image/*" onChange={pick} disabled={busy || locked} style={{ display: "none" }} />
         </label>
-        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Shown wherever your name appears in Renla.</div>
+        {/* Says explicitly that the picture is shrunk, so nobody reads the
+            10MB document limit further down the page as applying here. */}
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6, lineHeight: 1.5 }}>
+          Shown wherever your name appears in Renla.<br />Any photo works — it's resized down before saving.
+        </div>
       </div>
     </div>
   );
@@ -135,7 +139,7 @@ function DocUploader({ onUpload, locked }) {
             resized automatically, so in practice only a large PDF ever
             meets the limit. */}
         <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 7, lineHeight: 1.5 }}>
-          Photos are resized automatically. Up to {prettySize(EMPLOYEE_DOC_MAX_BYTES)} per file.
+          Up to {prettySize(EMPLOYEE_DOC_MAX_BYTES)} per document. A photo of a document is resized automatically.
         </div>
       </div>
     </div>

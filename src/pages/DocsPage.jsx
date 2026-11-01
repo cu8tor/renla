@@ -60,7 +60,7 @@ function DocsPage({ db, isHR, addDoc, deleteDoc, toast, companyId }) {
             {/* The limit is stated before anyone picks a file, not after a
                 rejected upload — by then they've already waited for a
                 10MB read that was never going to be accepted. */}
-            <Field label="Upload the file" hint="Stored privately — only your company can open it. Up to 10 MB; photos are resized automatically.">
+            <Field label="Upload the file" hint="Stored privately — only your company can open it. Up to 10 MB per document.">
               <input type="file" className="cp-input" disabled={uploading}
                 onChange={async (e) => {
                   const file = e.target.files && e.target.files[0];
