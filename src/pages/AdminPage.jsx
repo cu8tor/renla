@@ -1,0 +1,328 @@
+import { useState, useEffect, useCallback } from "react";
+import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle } from "lucide-react";
+import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans } from "../lib/supabase.js";
+import { naira } from "../lib/format.js";
+import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal, Stat } from "../components/ui.jsx";
+
+/* =====================================================================
+   AdminPage — Renla's own view across every customer.
+
+   Not a customer feature. Everything here goes through admin_* RPCs
+   that check platform_admins before returning a row, so this page is
+   useless to anyone who isn't in that table even if they find the URL.
+   That check lives in the database rather than in this file: hiding a
+   route only hides it.
+
+   Deliberately read-mostly. The three things it writes — recording a
+   payment, correcting a balance, changing a plan — are the three that
+   would otherwise mean hand-writing SQL against live customer money.
+   ===================================================================== */
+
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
+
+/* A balance is only alarming in context: ₦0 on the free tier is fine,
+   ₦0 on Growth means they stop working shortly. */
+function balanceTone(balance, monthlyCharge) {
+  if (monthlyCharge <= 0) return "muted";
+  if (balance < 0) return "danger";
+  if (balance < monthlyCharge) return "warn";
+  return "ok";
+}
+
+export default function AdminPage() {
+  const [rows, setRows] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openCo, setOpenCo] = useState(null);     // { id, name } being drilled into
+  const [detail, setDetail] = useState(null);
+  const [payFor, setPayFor] = useState(null);     // company row we're recording against
+
+  const load = useCallback(async () => {
+    setBusy(true); setErr("");
+    try {
+      const [list, p] = await Promise.all([adminCompanies(), listPlans()]);
+      setRows(list);
+      setPlans(p);
+    } catch (e) {
+      setErr(e.message || "Couldn't load that.");
+      setRows([]);
+    }
+    setBusy(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openDetail = async (co) => {
+    setOpenCo(co); setDetail(null);
+    try { setDetail(await adminCompanyDetail(co.id)); }
+    catch (e) { setErr(e.message); setOpenCo(null); }
+  };
+
+  if (err && !rows?.length) {
+    return (
+      <div className="cp-fade" style={{ maxWidth: 560 }}>
+        <PageHead title="Renla admin" />
+        <Card>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <AlertCircle size={18} style={{ color: "var(--danger)", marginTop: 1, flex: "0 0 auto" }} />
+            <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+              {err}
+              <div style={{ color: "var(--muted)", marginTop: 8, fontSize: 12.5 }}>
+                This page only works for a Renla platform admin. If that should be you, add your
+                user id to <b>platform_admins</b> — catch-up-migration-14.sql has the statement.
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  /* ---------- one company ---------- */
+  if (openCo) {
+    const co = rows?.find((r) => r.id === openCo.id) || openCo;
+    return (
+      <div className="cp-fade">
+        <button className="cp-link" style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 14 }}
+          onClick={() => { setOpenCo(null); setDetail(null); }}>
+          <ChevronLeft size={14} /> All companies
+        </button>
+
+        <PageHead title={co.name} sub={co.plan_name || co.plan}
+          action={<Btn icon={Plus} onClick={() => setPayFor(co)}>Record payment</Btn>} />
+
+        {!detail ? <Card><Empty text="Loading…" /></Card> : (
+          <>
+            <div className="cp-tiles" style={{ marginBottom: 18 }}>
+              <Stat icon={Wallet} label="Balance" value={naira(detail.balance)}
+                sub={detail.monthlyCharge > 0 ? `${naira(detail.monthlyCharge)}/month` : "Free plan"}
+                tone={balanceTone(detail.balance, detail.monthlyCharge) === "ok" ? "brand" : "accent"} />
+              <Stat icon={Users} label="Employees" value={detail.seats} sub="Active" />
+              <Stat icon={Building2} label="Branches" value={detail.branches.length} />
+              <Stat icon={Timer} label="Months covered" value={detail.monthlyCharge > 0 ? Math.floor(detail.balance / detail.monthlyCharge) : "—"}
+                sub="At the current rate" tone="accent" />
+            </div>
+
+            <Card style={{ marginBottom: 18 }}>
+              <Section title="Plan">
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 220 }}>
+                    <Field label="Subscription plan">
+                      <select className="cp-input" value={co.plan}
+                        onChange={async (e) => {
+                          try { await adminSetPlan(co.id, e.target.value); await load(); await openDetail(co); }
+                          catch (x) { setErr(x.message); }
+                        }}>
+                        {plans.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55, flex: 1, minWidth: 240, paddingBottom: 10 }}>
+                    Changing this changes what they're charged from the next monthly posting. It doesn't
+                    bill them now and doesn't refund anything already charged.
+                  </div>
+                </div>
+              </Section>
+            </Card>
+
+            <Card style={{ marginBottom: 18 }}>
+              <Section title={`Statement · ${detail.entries.length}`}>
+                {detail.entries.length === 0 ? <Empty text="Nothing yet — no payments and no charges." /> : (
+                  <div className="cp-table-wrap">
+                    <table className="cp-table">
+                      <thead><tr><th>Date</th><th>What</th><th>Reference</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead>
+                      <tbody>
+                        {detail.entries.map((e) => (
+                          <tr key={e.id}>
+                            <td style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{fmtDate(e.createdAt)}</td>
+                            <td style={{ fontSize: 13 }}>
+                              <Badge tone={e.kind === "credit" ? "ok" : e.kind === "charge" ? "muted" : "accent"}>{e.kind}</Badge>
+                              <span style={{ marginLeft: 8 }}>{e.description}</span>
+                            </td>
+                            <td style={{ fontSize: 12.5, color: "var(--muted)" }}>{e.reference || "—"}</td>
+                            <td className="cp-num" style={{ color: Number(e.amount) < 0 ? "var(--muted)" : "var(--ok)", fontWeight: 600 }}>
+                              {Number(e.amount) < 0 ? "−" : "+"}{naira(Math.abs(Number(e.amount)))}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Section>
+            </Card>
+
+            <div className="cp-two-col">
+              <Card>
+                <Section title={`Employees · ${detail.employees.length}`}>
+                  {detail.employees.length === 0 ? <Empty text="Nobody added yet." /> : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7, maxHeight: 340, overflowY: "auto" }}>
+                      {detail.employees.map((e) => (
+                        <div key={e.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                          <span style={{ flex: 1, fontWeight: 600 }}>{e.name}</span>
+                          <span style={{ color: "var(--muted)", fontSize: 12.5 }}>{e.title || "—"}</span>
+                          <Badge tone={e.status === "Active" ? "ok" : "muted"}>{e.status}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+              </Card>
+
+              <Card>
+                <Section title={`Branches · ${detail.branches.length}`}>
+                  {detail.branches.length === 0 ? <Empty text="No branches set up." /> : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                      {detail.branches.map((b) => (
+                        <div key={b.id} style={{ fontSize: 13, fontWeight: 600 }}>{b.name}</div>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+              </Card>
+            </div>
+          </>
+        )}
+
+        {payFor && <PaymentModal co={payFor} onClose={() => setPayFor(null)}
+          onDone={async () => { setPayFor(null); await load(); await openDetail(co); }}
+          onError={setErr} />}
+      </div>
+    );
+  }
+
+  /* ---------- all companies ---------- */
+  const totalOwed = (rows || []).reduce((t, r) => t + (Number(r.balance) < 0 ? -Number(r.balance) : 0), 0);
+  const totalHeld = (rows || []).reduce((t, r) => t + Math.max(0, Number(r.balance)), 0);
+  const paying = (rows || []).filter((r) => Number(r.monthly_charge) > 0);
+  const mrr = paying.reduce((t, r) => t + Number(r.monthly_charge), 0);
+
+  return (
+    <div className="cp-fade">
+      <PageHead title="Renla admin" sub="Every company on the platform"
+        action={<Btn icon={RefreshCw} variant="ghost" disabled={busy} onClick={load}>{busy ? "Loading…" : "Refresh"}</Btn>} />
+
+      {err && <Card style={{ marginBottom: 18, borderColor: "var(--danger)" }}><div style={{ fontSize: 13, color: "var(--danger)" }}>{err}</div></Card>}
+
+      <div className="cp-tiles" style={{ marginBottom: 18 }}>
+        <Stat icon={Building2} label="Companies" value={(rows || []).length} sub={`${paying.length} on a paid plan`} />
+        <Stat icon={Wallet} label="Monthly recurring" value={naira(mrr)} sub="At current headcounts" />
+        <Stat icon={Wallet} label="Held in wallets" value={naira(totalHeld)} sub="Paid, not yet used" tone="accent" />
+        <Stat icon={AlertCircle} label="In arrears" value={naira(totalOwed)} sub="Owed to you" tone="accent" />
+      </div>
+
+      <Card pad={0}>
+        {rows === null ? <div style={{ padding: 30 }}><Empty text="Loading…" /></div>
+          : rows.length === 0 ? <div style={{ padding: 30 }}><Empty text="No companies yet." /></div> : (
+          <div className="cp-table-wrap">
+            <table className="cp-table">
+              <thead><tr><th>Company</th><th>Plan</th><th>Staff</th><th>Per month</th><th>Balance</th><th>Last paid</th><th></th></tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="cp-row" onClick={() => openDetail(r)}>
+                    <td style={{ fontWeight: 600, fontSize: 13.5 }}>{r.name}</td>
+                    <td><Badge tone={r.plan === "starter" ? "muted" : "brand"}>{r.plan_name || r.plan}</Badge></td>
+                    <td className="cp-num">{r.seats}</td>
+                    <td className="cp-num">{Number(r.monthly_charge) > 0 ? naira(r.monthly_charge) : "—"}</td>
+                    <td className="cp-num">
+                      <Badge tone={balanceTone(Number(r.balance), Number(r.monthly_charge))}>{naira(r.balance)}</Badge>
+                    </td>
+                    <td style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>{fmtDate(r.last_payment_at)}</td>
+                    <td onClick={(ev) => ev.stopPropagation()}>
+                      <button className="cp-mini" onClick={() => setPayFor(r)}><Plus size={13} /> Payment</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card style={{ marginTop: 18 }}>
+        <Section title="Monthly billing">
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
+            Posts this month's charge against every company on a paid plan, worked out from their plan
+            and their current headcount. Safe to run twice — a company already charged for this month is
+            skipped, so nobody is ever double-billed. Companies on the free plan are left alone entirely.
+          </div>
+          <Btn icon={Wallet} disabled={busy} onClick={async () => {
+            setBusy(true); setErr("");
+            try {
+              const n = await adminPostCharges();
+              setErr(n === 0 ? "Nothing to post — everyone on a paid plan is already charged for this month."
+                             : `Posted ${n} ${n === 1 ? "charge" : "charges"}.`);
+              await load();
+            } catch (e) { setErr(e.message); }
+            setBusy(false);
+          }}>Post this month's charges</Btn>
+        </Section>
+      </Card>
+
+      {payFor && <PaymentModal co={payFor} onClose={() => setPayFor(null)}
+        onDone={async () => { setPayFor(null); await load(); }} onError={setErr} />}
+    </div>
+  );
+}
+
+/* Recording a transfer you've seen land in the bank. Kept to the two
+   things that matter — how much, and what it was — so it can't become a
+   form people skip. */
+function PaymentModal({ co, onClose, onDone, onError }) {
+  const [amount, setAmount] = useState("");
+  const [reference, setReference] = useState("");
+  const [note, setNote] = useState("");
+  const [mode, setMode] = useState("credit");      // credit | adjustment
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    const n = Number(String(amount).replace(/[^0-9.-]/g, ""));
+    if (!n) { setErr("How much?"); return; }
+    if (mode === "credit" && n <= 0) { setErr("A payment has to be positive. Use a correction to take money off."); return; }
+    if (mode === "adjustment" && !note.trim()) { setErr("Say what the correction is for."); return; }
+    setErr(""); setBusy(true);
+    try {
+      if (mode === "credit") await adminRecordPayment(co.id, n, reference.trim(), note.trim());
+      else await adminAdjust(co.id, n, note.trim());
+      await onDone();
+    } catch (e) { setErr(e.message); onError?.(e.message); setBusy(false); }
+  };
+
+  return (
+    <Modal title={mode === "credit" ? `Record a payment from ${co.name}` : `Correct ${co.name}'s balance`}
+      onClose={onClose} onSubmit={submit} submitDisabled={busy}
+      submitLabel={busy ? "Saving…" : mode === "credit" ? "Record payment" : "Post correction"}>
+
+      <div className="cp-tabs" style={{ marginBottom: 16 }}>
+        <button className={"cp-tab" + (mode === "credit" ? " active" : "")} onClick={() => { setMode("credit"); setErr(""); }}>Payment received</button>
+        <button className={"cp-tab" + (mode === "adjustment" ? " active" : "")} onClick={() => { setMode("adjustment"); setErr(""); }}>Correction</button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Field label="Amount (₦)" hint={mode === "adjustment" ? "Negative to take money off the balance" : "As it landed in the bank"}>
+          <input className="cp-input" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="5000" />
+        </Field>
+
+        {mode === "credit" && (
+          <Field label="Bank reference" hint="Optional, but it's what you'll search for later">
+            <input className="cp-input" value={reference} onChange={(e) => setReference(e.target.value)} />
+          </Field>
+        )}
+
+        <Field label={mode === "credit" ? "Note" : "What is this correction for?"} hint={mode === "credit" ? "Optional" : undefined}>
+          <input className="cp-input" value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder={mode === "credit" ? "Bank transfer" : "e.g. Refund for double payment in October"} />
+        </Field>
+
+        {err && <div style={{ fontSize: 13, color: "var(--danger)", lineHeight: 1.5 }}>{err}</div>}
+
+        <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
+          This goes onto their statement and can't be edited afterwards — a mistake is fixed with a
+          correction in the other direction, so the history stays honest.
+        </div>
+      </div>
+    </Modal>
+  );
+}

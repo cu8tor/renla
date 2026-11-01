@@ -4,7 +4,7 @@ import {
   supabase, configured, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut,
   createCompany, joinCompany, getProfile, onAuthChange,
   loadWorkspace, uploadDocument, signedUrl,
-  uploadAvatar, uploadEmployeeDocument, removeFiles,
+  uploadAvatar, uploadEmployeeDocument, removeFiles, isPlatformAdmin,
 } from "./lib/supabase.js";
 import { onboardingChecklist } from "./lib/onboarding.js";
 import { syncChanges } from "./lib/sync.js";
@@ -61,6 +61,7 @@ import { SoonPage } from "./pages/SoonPage.jsx";
 import { ProfilePage } from "./pages/ProfilePage.jsx";
 import JoinPage from "./pages/JoinPage.jsx";
 import WelcomePage from "./pages/WelcomePage.jsx";
+import AdminPage from "./pages/AdminPage.jsx";
 import { LeaderboardPage } from "./pages/LeaderboardPage.jsx";
 /* ================================================================== */
 /*  APP                                                                */
@@ -106,7 +107,11 @@ function AppShell() {
   const [localDevice, setLocalDevice] = useState(null);
   const [profile, setProfile] = useState(null);      // signed-in user + role
   const [authReady, setAuthReady] = useState(false);
-  const [recovery, setRecovery] = useState(false);   // came in via a password-reset link
+  const [recovery, setRecovery] = useState(false);           // came in via a password-reset link
+  // Renla's own staff, not a role inside a customer's company. The real
+  // gate is in the database — every admin_* RPC checks platform_admins —
+  // so this only decides whether the nav item is worth showing.
+  const [platformAdmin, setPlatformAdmin] = useState(false);
   const [authLinkError, setAuthLinkError] = useState("");  // an expired/already-used reset link
   const [loadError, setLoadError] = useState("");
   const dbRef = useRef(null);
@@ -369,6 +374,13 @@ function AppShell() {
     window.addEventListener("focus", runSync);
     return () => { window.removeEventListener("online", runSync); window.removeEventListener("focus", runSync); };
   }, [runSync]);
+
+  useEffect(() => {
+    if (!profile || profile.noCompany) { setPlatformAdmin(false); return; }
+    let alive = true;
+    isPlatformAdmin().then((v) => { if (alive) setPlatformAdmin(v); });
+    return () => { alive = false; };
+  }, [profile]);
 
   /* ---------- derived ---------- */
   const me = db && profile && !profile.noCompany ? { id: profile.id, name: profile.name, role: profile.role, employeeId: profile.employeeId } : null;
@@ -1001,6 +1013,7 @@ function AppShell() {
     { key: "payroll", label: "Payroll", icon: Wallet },
   ];
   if (isHR) NAV.push({ key: "settings", label: "Settings", icon: SettingsIcon });
+  if (platformAdmin) NAV.push({ key: "admin", label: "Renla admin", icon: ShieldCheck });
   const SOON = [
     { key: "performance", label: "Performance", icon: BarChart3, phase: "Coming soon" },
   ];
@@ -1148,6 +1161,9 @@ function AppShell() {
                 } />
                 <Route path="/profile" element={
                   <ProfilePage {...{ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocument, deleteMyDocument }} />
+                } />
+                <Route path="/admin" element={
+                  platformAdmin ? <AdminPage /> : <Navigate to="/dashboard" replace />
                 } />
                 <Route path="/welcome" element={
                   <WelcomePage {...{ db, myEmp, saveMyProfile, go }} />

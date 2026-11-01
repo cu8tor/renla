@@ -212,6 +212,65 @@ function friendly(msg = "") {
   return msg;
 }
 
+
+/* ---------------------------------------------------- platform admin
+
+   Every one of these is a security-definer RPC that checks
+   platform_admins before it returns or writes anything (see
+   catch-up-migration-14.sql). The gating is in the database, not here:
+   hiding the page would only hide it. */
+
+export async function isPlatformAdmin() {
+  const { data, error } = await supabase.rpc("is_platform_admin");
+  if (error) return false;              // not an admin, or not signed in
+  return Boolean(data);
+}
+
+export async function listPlans() {
+  const { data, error } = await supabase.from("plans").select("*").order("sort_order");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function adminCompanies() {
+  const { data, error } = await supabase.rpc("admin_companies");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function adminCompanyDetail(companyId) {
+  const { data, error } = await supabase.rpc("admin_company_detail", { p_company: companyId });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function adminRecordPayment(companyId, amount, reference, note) {
+  const { data, error } = await supabase.rpc("admin_record_payment", {
+    p_company: companyId, p_amount: amount, p_reference: reference || "", p_note: note || "",
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function adminAdjust(companyId, amount, note) {
+  const { data, error } = await supabase.rpc("admin_adjust", {
+    p_company: companyId, p_amount: amount, p_note: note,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function adminSetPlan(companyId, planKey) {
+  const { error } = await supabase.rpc("admin_set_plan", { p_company: companyId, p_plan: planKey });
+  if (error) throw new Error(error.message);
+}
+
+export async function adminPostCharges(period) {
+  const { data, error } = await supabase.rpc("post_monthly_charges", { p_period: period ?? null });
+  if (error) throw new Error(error.message);
+  return Number(data) || 0;
+}
+
 /* --------------------------------------------------- load the workspace */
 
 const num = (v) => Number(v) || 0;
