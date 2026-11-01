@@ -4,7 +4,7 @@ import {
   supabase, configured, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut,
   createCompany, joinCompany, getProfile, onAuthChange,
   loadWorkspace, uploadDocument, signedUrl,
-  uploadAvatar, uploadEmployeeDocument, removeFiles, isPlatformAdmin,
+  uploadAvatar, uploadEmployeeDocument, removeFiles,
 } from "./lib/supabase.js";
 import { onboardingChecklist } from "./lib/onboarding.js";
 import { syncChanges } from "./lib/sync.js";
@@ -61,7 +61,7 @@ import { SoonPage } from "./pages/SoonPage.jsx";
 import { ProfilePage } from "./pages/ProfilePage.jsx";
 import JoinPage from "./pages/JoinPage.jsx";
 import WelcomePage from "./pages/WelcomePage.jsx";
-import AdminPage from "./pages/AdminPage.jsx";
+import AdminApp from "./pages/AdminApp.jsx";
 import { LeaderboardPage } from "./pages/LeaderboardPage.jsx";
 /* ================================================================== */
 /*  APP                                                                */
@@ -108,10 +108,6 @@ function AppShell() {
   const [profile, setProfile] = useState(null);      // signed-in user + role
   const [authReady, setAuthReady] = useState(false);
   const [recovery, setRecovery] = useState(false);           // came in via a password-reset link
-  // Renla's own staff, not a role inside a customer's company. The real
-  // gate is in the database — every admin_* RPC checks platform_admins —
-  // so this only decides whether the nav item is worth showing.
-  const [platformAdmin, setPlatformAdmin] = useState(false);
   const [authLinkError, setAuthLinkError] = useState("");  // an expired/already-used reset link
   const [loadError, setLoadError] = useState("");
   const dbRef = useRef(null);
@@ -375,13 +371,6 @@ function AppShell() {
     return () => { window.removeEventListener("online", runSync); window.removeEventListener("focus", runSync); };
   }, [runSync]);
 
-  useEffect(() => {
-    if (!profile || profile.noCompany) { setPlatformAdmin(false); return; }
-    let alive = true;
-    isPlatformAdmin().then((v) => { if (alive) setPlatformAdmin(v); });
-    return () => { alive = false; };
-  }, [profile]);
-
   /* ---------- derived ---------- */
   const me = db && profile && !profile.noCompany ? { id: profile.id, name: profile.name, role: profile.role, employeeId: profile.employeeId } : null;
   const myEmp = me && db ? db.employees.find((e) => e.id === me.employeeId) : null;
@@ -394,6 +383,16 @@ function AppShell() {
   /*  BOOT / ONBOARDING                                                */
   /* ================================================================ */
   if (!configured) return <NotConfigured theme={theme} />;
+
+  /* The back office is a separate surface: its own sign-in, its own
+     chrome, and no requirement to belong to a company. Checked before
+     the workspace-loading gate below, because it reads none of it —
+     otherwise an admin who also runs a company would sit through a full
+     workspace load on the way to a page that never touches it. */
+  if (window.location.pathname === "/admin") {
+    return <AdminApp theme={theme} dark={dark} setDark={setDark} />;
+  }
+
 
   if (!authReady || (profile && !profile.noCompany && !booted)) {
     return (
@@ -1013,7 +1012,6 @@ function AppShell() {
     { key: "payroll", label: "Payroll", icon: Wallet },
   ];
   if (isHR) NAV.push({ key: "settings", label: "Settings", icon: SettingsIcon });
-  if (platformAdmin) NAV.push({ key: "admin", label: "Renla admin", icon: ShieldCheck });
   const SOON = [
     { key: "performance", label: "Performance", icon: BarChart3, phase: "Coming soon" },
   ];
@@ -1161,9 +1159,6 @@ function AppShell() {
                 } />
                 <Route path="/profile" element={
                   <ProfilePage {...{ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocument, deleteMyDocument }} />
-                } />
-                <Route path="/admin" element={
-                  platformAdmin ? <AdminPage /> : <Navigate to="/dashboard" replace />
                 } />
                 <Route path="/welcome" element={
                   <WelcomePage {...{ db, myEmp, saveMyProfile, go }} />
