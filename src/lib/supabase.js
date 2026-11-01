@@ -133,9 +133,19 @@ export async function inviteDetails(token) {
    address. Returns { email, existing }; `existing` means they already
    had an account and should sign in with their own password instead. */
 export async function claimInvite(token, password) {
+  // Nobody is signed in yet, so the anon key goes in both headers: `apikey`
+  // for the gateway, and `Authorization` so the call still gets through on
+  // a project that has JWT verification left on for this function. Without
+  // the second one such a project rejects the request before the function
+  // runs, and because a gateway rejection carries no CORS headers the
+  // browser reports it as an unexplained "Failed to fetch".
   const res = await fetch(`${url}/functions/v1/claim-invite`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", apikey: key },
+    headers: {
+      "Content-Type": "application/json",
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+    },
     body: JSON.stringify({ token, password }),
   });
   const out = await res.json().catch(() => ({}));
