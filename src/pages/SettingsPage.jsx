@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Clock3, Plus, Check, X, Building2, MapPin, Download, PartyPopper, BadgeCheck, Trash2, Database, Info, Copy, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, Trophy } from "lucide-react";
+import { Clock3, Plus, Check, X, Building2, MapPin, Download, PartyPopper, BadgeCheck, Trash2, Database, Info, Copy, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, Trophy, CalendarDays } from "lucide-react";
 import { supabase } from "../lib/supabase.js";
 import { DEFAULT_PAYROLL } from "../features/payroll/payrollEngine.js";
 import { durLabel, crossesMidnight, minutesBetween } from "../features/attendance/attendanceLogic.js";
@@ -7,6 +7,7 @@ import { uid, fmtShort, fmtLong, copyText } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
 import { DEFAULT_WORK } from "../lib/presence.js";
 import { DEFAULT_ONBOARDING } from "../lib/onboarding.js";
+import { DEFAULT_LEAVE_POLICY } from "../features/leave/entitlements.js";
 import { DEFAULT_LEADERBOARD } from "../lib/leaderboard.js";
 import { Avatar, EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
@@ -23,10 +24,11 @@ const ONBOARDING_FIELDS = [
   { key: "requireIdDocument", label: "An ID or reference document" },
 ];
 
-function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings }) {
+function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings, saveLeavePolicy }) {
   const [name, setName] = useState(db.company.name);
   const [work, setWork] = useState({ ...DEFAULT_WORK, ...(db.work || {}) });
   const [onboarding, setOnboarding] = useState({ ...DEFAULT_ONBOARDING, ...(db.onboarding || {}) });
+  const [leavePolicy, setLeavePolicy] = useState({ ...DEFAULT_LEAVE_POLICY, ...(db.leavePolicy || {}) });
   const [leaderboard, setLeaderboard] = useState({ ...DEFAULT_LEADERBOARD, ...(db.leaderboard || {}) });
   const [site, setSite] = useState({ name: "", lat: "", lng: "", radius: "200" });
   const [pr, setPr] = useState({ ...DEFAULT_PAYROLL, ...(db.payroll || {}) });
@@ -111,6 +113,50 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
             </div>
             <div style={{ marginTop: 14 }}>
               <Btn onClick={() => { saveOnboardingRequirements(onboarding); toast("Onboarding requirements saved"); }}>Save requirements</Btn>
+            </div>
+          </Section>
+        </Card>
+
+        <Card>
+          <Section title="Leave allowance">
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
+              How many days a year everyone gets. What someone has <i>left</i> is worked out from this minus the leave they've had approved, so it corrects itself if a request is declined or deleted. Someone on different terms can be given their own figures on their employee record.
+            </div>
+
+            <div className="cp-form-grid">
+              <Field label="Annual days" hint="Per year"><input className="cp-input" value={leavePolicy.annual} onChange={(e) => setLeavePolicy({ ...leavePolicy, annual: Number(e.target.value) || 0 })} /></Field>
+              <Field label="Sick days" hint="Per year"><input className="cp-input" value={leavePolicy.sick} onChange={(e) => setLeavePolicy({ ...leavePolicy, sick: Number(e.target.value) || 0 })} /></Field>
+              <Field label="Compassionate days" hint="Per year"><input className="cp-input" value={leavePolicy.comp} onChange={(e) => setLeavePolicy({ ...leavePolicy, comp: Number(e.target.value) || 0 })} /></Field>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "18px 0 10px" }}>Year end</div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 9, cursor: "pointer" }}>
+              <input type="checkbox" checked={Boolean(leavePolicy.rollover)} onChange={(e) => setLeavePolicy({ ...leavePolicy, rollover: e.target.checked })} />
+              Let unused days carry into next year
+            </label>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8, lineHeight: 1.55 }}>
+              Off by default — unused days expire at the end of the year. Carried days are used within twelve months: they don't carry on again the year after.
+            </div>
+
+            {leavePolicy.rollover && (
+              <div style={{ maxWidth: 220, marginTop: 12 }}>
+                <Field label="Most days that can carry" hint="Per leave type">
+                  <input className="cp-input" value={leavePolicy.rolloverCap} onChange={(e) => setLeavePolicy({ ...leavePolicy, rolloverCap: Number(e.target.value) || 0 })} />
+                </Field>
+              </div>
+            )}
+
+            <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 9, cursor: "pointer", marginTop: 12 }}>
+              <input type="checkbox" checked={Boolean(leavePolicy.proRateFirstYear)} onChange={(e) => setLeavePolicy({ ...leavePolicy, proRateFirstYear: e.target.checked })} />
+              Pro-rate the year someone joins
+            </label>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8, lineHeight: 1.55 }}>
+              On by default. Someone starting in October gets three months' worth rather than a full year's. Turn it off to give every joiner the full allowance whatever month they start.
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <Btn icon={CalendarDays} onClick={() => { saveLeavePolicy(leavePolicy); toast("Leave allowance saved"); }}>Save allowance</Btn>
             </div>
           </Section>
         </Card>

@@ -27,7 +27,7 @@ const employeeRow = (e, cid) => ({
   department: e.dept || "", manager_id: e.managerId || null,
   joined: e.joined || null, contract: e.contract || "Full-time",
   status: e.status || "Active", next_of_kin: e.kin || "",
-  emergency: e.emergency || "", balances: e.bal || {}, check_prefs: e.checkPrefs || {},
+  emergency: e.emergency || "", balances: e.bal || {}, entitlement: e.entitlement || null, check_prefs: e.checkPrefs || {},
   branch_id: e.branchId || null, shift_id: e.shiftId || "", contract_end: e.contractEnd || null,
   week_schedule: e.weekSchedule || null, schedule_mode: e.scheduleMode || "pattern",
   reference_name: e.referenceName || "", reference_phone: e.referencePhone || "",
@@ -321,9 +321,9 @@ export async function syncChanges(prev, next, companyId) {
   }
 
   /* --- settings and company details --- */
-  if (!eq(prev.work, next.work) || !eq(prev.payroll, next.payroll) || !eq(prev.onboarding, next.onboarding) || !eq(prev.leaderboard, next.leaderboard)) {
+  if (!eq(prev.work, next.work) || !eq(prev.payroll, next.payroll) || !eq(prev.onboarding, next.onboarding) || !eq(prev.leaderboard, next.leaderboard) || !eq(prev.leavePolicy, next.leavePolicy)) {
     await run("save settings", supabase.from("company_settings")
-      .update({ work: next.work, payroll: next.payroll, onboarding: next.onboarding, leaderboard: next.leaderboard, updated_at: new Date().toISOString() })
+      .update({ work: next.work, payroll: next.payroll, onboarding: next.onboarding, leaderboard: next.leaderboard, leave_policy: next.leavePolicy, updated_at: new Date().toISOString() })
       .eq("company_id", companyId));
   }
   if (!eq(prev.company, next.company)) {

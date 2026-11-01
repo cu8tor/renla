@@ -3,6 +3,7 @@ import { pad2 } from "../features/attendance/attendanceLogic.js";
 import { uid, todayISO } from "./format.js";
 import { DEFAULT_WORK } from "./presence.js";
 import { blankBalances } from "../features/insights/monthInsights.js";
+import { DEFAULT_LEAVE_POLICY } from "../features/leave/entitlements.js";
 import { DEFAULT_ONBOARDING } from "./onboarding.js";
 import { DEFAULT_LEADERBOARD } from "./leaderboard.js";
 
@@ -31,6 +32,7 @@ function normalizeDb(d) {
     payroll: { ...DEFAULT_PAYROLL, ...(d.payroll || {}) },
     onboarding: { ...DEFAULT_ONBOARDING, ...(d.onboarding || {}) },
     leaderboard: { ...DEFAULT_LEADERBOARD, ...(d.leaderboard || {}) },
+    leavePolicy: { ...DEFAULT_LEAVE_POLICY, ...(d.leavePolicy || {}) },
     employeeDocs: d.employeeDocs || [],
     employees: (d.employees || []).map((e) =>
       e.pay

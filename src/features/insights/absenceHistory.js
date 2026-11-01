@@ -107,11 +107,11 @@ function leaveHistoryFor(db, empId) {
 
 /* Approved days taken per leave type in one calendar year.
 
-   Renla stores only what's LEFT in emp.bal — there's no entitlement figure
-   anywhere, so "9 of 20" can't be shown honestly. This gives the other half
-   of the picture from data that does exist: what they've actually used. If
-   HR has hand-edited a balance, "left" and "taken" won't add up to a round
-   number, which is correct — they genuinely don't. */
+   Entitlements (features/leave/entitlements.js) now own the full
+   picture — granted, carried, taken, left. This stays because it answers
+   a narrower question the history view asks directly: how many days of
+   each type were approved in one year, including types like Maternity
+   and Unpaid that have no tracked balance at all. */
 function leaveTakenByType(db, empId, year) {
   const prefix = String(year);
   const out = {};

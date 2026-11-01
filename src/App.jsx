@@ -33,9 +33,7 @@ import {
   DEFAULT_SHIFTS, crossesMidnight, minutesBetween, shiftFor, lateMinutesAgainst,
   overtimeMinutes, CHECK_KEYS, effectiveWork, anyoneHas, hasOverrides,
 } from "./features/attendance/attendanceLogic.js";
-import {
-  nextLeaveStatus, shouldDecrementBalance, decrementLeaveBalance, validateLeaveDates,
-} from "./features/leave/leaveLogic.js";
+import { nextLeaveStatus, validateLeaveDates } from "./features/leave/leaveLogic.js";
 
 import { LIGHT, DARK } from "./theme.js";
 import { getLocalDevice } from "./lib/device.js";
@@ -523,6 +521,10 @@ function AppShell() {
     update((d) => ({ ...d, onboarding: { ...d.onboarding, ...patch } }));
   };
 
+  const saveLeavePolicy = (patch) => {
+    update((d) => ({ ...d, leavePolicy: { ...d.leavePolicy, ...patch } }));
+  };
+
   const saveLeaderboardSettings = (patch) => {
     update((d) => ({ ...d, leaderboard: { ...d.leaderboard, ...patch } }));
   };
@@ -551,18 +553,19 @@ function AppShell() {
       }
     }
     update((d) => {
-      let employees = d.employees;
       const leave = d.leave.map((l) => {
         if (l.id !== id) return l;
         // A manager passes it up to HR. HR has the final say at either stage,
         // so when HR approves, it's done — no second click needed.
-        const next = nextLeaveStatus(l.status, approve, isHR);
-        if (shouldDecrementBalance(l.status, next)) {
-          employees = employees.map((e) => (e.id === l.empId ? decrementLeaveBalance(e, l.type, l.days) : e));
-        }
-        return { ...l, status: next };
+        //
+        // Nothing is deducted from a stored counter here any more. A
+        // balance is now derived (entitlements.js) as entitlement plus
+        // carry-over minus what's been approved this year, so approving
+        // this request IS the deduction — and un-approving it gives the
+        // days straight back, which the old counter never did.
+        return { ...l, status: nextLeaveStatus(l.status, approve, isHR) };
       });
-      return { ...d, leave, employees };
+      return { ...d, leave };
     });
     const l = db.leave.find((x) => x.id === id);
     if (!approve) toast("Request declined", "danger");
@@ -1140,7 +1143,7 @@ function AppShell() {
                 } />
                 <Route path="/settings" element={
                   isHR
-                    ? <SettingsPage {...{ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings }} />
+                    ? <SettingsPage {...{ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings, saveLeavePolicy }} />
                     : <Navigate to="/dashboard" replace />
                 } />
                 <Route path="/profile" element={

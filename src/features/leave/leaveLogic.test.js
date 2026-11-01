@@ -12,13 +12,7 @@
    ===================================================================== */
 
 import { describe, it, expect } from "vitest";
-import {
-  BAL_KEYS,
-  nextLeaveStatus,
-  shouldDecrementBalance,
-  decrementLeaveBalance,
-  validateLeaveDates,
-} from "./leaveLogic.js";
+import { nextLeaveStatus, validateLeaveDates } from "./leaveLogic.js";
 
 describe("nextLeaveStatus — two-stage manager-then-HR chain", () => {
   it("a manager approving a pending_manager request sends it to pending_hr, not approved", () => {
@@ -50,47 +44,7 @@ describe("nextLeaveStatus — two-stage manager-then-HR chain", () => {
   });
 });
 
-describe("shouldDecrementBalance", () => {
-  it("is true only on the transition into approved", () => {
-    expect(shouldDecrementBalance("pending_hr", "approved")).toBe(true);
-    expect(shouldDecrementBalance("pending_manager", "approved")).toBe(true);
-  });
 
-  it("is false if already approved (prevents double-decrementing)", () => {
-    expect(shouldDecrementBalance("approved", "approved")).toBe(false);
-  });
-
-  it("is false for any non-approved outcome", () => {
-    expect(shouldDecrementBalance("pending_manager", "pending_hr")).toBe(false);
-    expect(shouldDecrementBalance("pending_manager", "declined")).toBe(false);
-  });
-});
-
-describe("decrementLeaveBalance", () => {
-  const employee = { id: "e1", bal: { annual: 10, sick: 5, comp: 2 } };
-
-  it("deducts days from the matching balance bucket for a tracked leave type", () => {
-    const out = decrementLeaveBalance(employee, "Annual", 3);
-    expect(out.bal.annual).toBe(7);
-    expect(out.bal.sick).toBe(5); // untouched
-  });
-
-  it("maps each of the three tracked leave types to the right bucket", () => {
-    expect(BAL_KEYS).toEqual({ Annual: "annual", Sick: "sick", Compassionate: "comp" });
-    expect(decrementLeaveBalance(employee, "Sick", 2).bal.sick).toBe(3);
-    expect(decrementLeaveBalance(employee, "Compassionate", 1).bal.comp).toBe(1);
-  });
-
-  it("floors at zero rather than going negative", () => {
-    const out = decrementLeaveBalance(employee, "Sick", 999);
-    expect(out.bal.sick).toBe(0);
-  });
-
-  it("leaves the employee record untouched for an untracked leave type", () => {
-    const out = decrementLeaveBalance(employee, "Unpaid", 5);
-    expect(out).toBe(employee);
-  });
-});
 
 describe("validateLeaveDates", () => {
   const parseD = (s) => new Date(s);

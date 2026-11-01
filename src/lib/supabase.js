@@ -304,6 +304,7 @@ export async function loadWorkspace(profile) {
     work: settings.data.work,
     payroll: settings.data.payroll,
     onboarding: settings.data.onboarding || {},
+    leavePolicy: settings.data.leave_policy || {},
     leaderboard: settings.data.leaderboard || {},
     employees: (employees.data || []).map((r) => {
       const p = payById[r.id];
@@ -318,6 +319,7 @@ export async function loadWorkspace(profile) {
         referenceRelationship: r.reference_relationship || "", avatarPath: r.avatar_path || "",
         profileLocked: Boolean(r.profile_locked),
         bal: r.balances || { annual: 20, sick: 10, comp: 5 },
+        entitlement: r.entitlement || null,
         checkPrefs: r.check_prefs || {},
         branchId: r.branch_id || "", shiftId: r.shift_id || "", contractEnd: r.contract_end || "",
         weekSchedule: r.week_schedule || null, scheduleMode: r.schedule_mode || "",

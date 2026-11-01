@@ -5,6 +5,7 @@ import { durLabel, shiftFor, lateMinutesAgainst } from "../features/attendance/a
 import { MONTHS, naira, parseD, todayISO, startOfToday, fmtShort, fmtLong, DEPT_COLORS } from "../lib/format.js";
 import { isOnLeaveToday, monthInsights, branchBreakdown } from "../features/insights/monthInsights.js";
 import { monthKey, monthLabel } from "../lib/payrollHelpers.js";
+import { leaveBalances } from "../features/leave/entitlements.js";
 import { onboardingChecklist } from "../lib/onboarding.js";
 import { Avatar, EmpAvatar, Badge, Card, Stat, Section, Empty, Dot, Btn } from "../components/ui.jsx";
 import { LeaveDecideRow } from "./LeavePage.jsx";
@@ -152,6 +153,8 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
   const hr = new Date().getHours();
   const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const myLeave = myEmp ? db.leave.filter((l) => l.empId === myEmp.id) : [];
+  // Derived, not stored — see features/leave/entitlements.js.
+  const myBal = leaveBalances(myEmp, db);
   const narrative = narrativeLine({ isHR, isManager, myEmp, db, myTeam, pendingForMe, onLeaveNow, upcomingHols, myLeave });
   const myDocs = myEmp ? (db.employeeDocs || []).filter((d) => d.empId === myEmp.id) : [];
   const myChecklist = myEmp ? onboardingChecklist(myEmp, db.onboarding, myDocs) : null;
@@ -218,8 +221,8 @@ function DashboardPage({ me, myEmp, isHR, isManager, myTeam, total, presentNow, 
           <Stat icon={Cake} label="Team birthdays" value={upcomingBdays.filter((b) => myTeam.some((m) => m.id === b.e.id)).length} sub="Next 30 days" tone="accent" />
         </>}
         {!isHR && !isManager && myEmp && <>
-          <Stat icon={CalendarDays} label="Annual leave left" value={`${myEmp.bal.annual} days`} />
-          <Stat icon={BadgeCheck} label="Sick days left" value={`${myEmp.bal.sick} days`} />
+          <Stat icon={CalendarDays} label="Annual leave left" value={`${myBal.annual.left} days`} sub={`of ${myBal.annual.granted} this year`} />
+          <Stat icon={BadgeCheck} label="Sick days left" value={`${myBal.sick.left} days`} sub={`of ${myBal.sick.granted} this year`} />
           <Stat icon={Clock3} label="My open requests" value={myLeave.filter((l) => l.status.startsWith("pending")).length} sub="Awaiting approval" tone="accent" />
           <Stat icon={PartyPopper} label="Next holiday" value={upcomingHols[0] ? `${upcomingHols[0].diff}d` : "—"} sub={upcomingHols[0]?.name} tone="accent" />
         </>}

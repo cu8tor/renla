@@ -5,6 +5,7 @@ import { CHECK_KEYS, hasOverrides } from "../features/attendance/attendanceLogic
 import { naira, grossOf, fmtShort, copyText } from "../lib/format.js";
 import { emptyEmployee } from "../lib/payrollHelpers.js";
 import { onboardingChecklist } from "../lib/onboarding.js";
+import { leaveBalances } from "../features/leave/entitlements.js";
 import { sendInvite } from "../lib/supabase.js";
 import { Avatar, EmpAvatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
@@ -118,7 +119,7 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
         )}
       </Card>
 
-      {viewing && <ProfileDrawer emp={viewing} manager={empById(viewing.managerId)} isHR={isHR} isManager={isManager} isSelf={myEmp?.id === viewing.id} onClose={() => setViewing(null)} />}
+      {viewing && <ProfileDrawer emp={viewing} db={db} manager={empById(viewing.managerId)} isHR={isHR} isManager={isManager} isSelf={myEmp?.id === viewing.id} onClose={() => setViewing(null)} />}
 
       {editing && (
         <EmployeeForm
@@ -349,7 +350,14 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
     scheduleMode: emp.scheduleMode || (emp.weekSchedule ? "custom" : "pattern"),
   });
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const setBal = (k, v) => setF((x) => ({ ...x, bal: { ...x.bal, [k]: Number(v) || 0 } }));
+  // An empty box means "no override" — storing 0 would silently grant
+  // somebody no leave at all, which is never what clearing a field means.
+  const setEnt = (k, v) => setF((x) => {
+    const next = { ...(x.entitlement || {}) };
+    if (String(v).trim() === "") delete next[k];
+    else next[k] = Number(v) || 0;
+    return { ...x, entitlement: Object.keys(next).length ? next : null };
+  });
   const setPay = (k, v) => setF((x) => ({ ...x, pay: { ...emptyPay(), ...(x.pay || {}), [k]: Number(String(v).replace(/[^0-9]/g, "")) || 0 } }));
   const setDaySched = (day, patch) => setF((x) => ({
     ...x,
@@ -521,11 +529,18 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
         )}
       </FormGroup>
 
-      <FormGroup title="Leave balances & contacts">
+      <FormGroup title="Leave allowance & contacts">
+        {/* These are the days granted for a year, not what's left — what's
+            left is worked out from these minus what's been approved. Blank
+            means "use the company default from Settings", so only fill
+            them in for someone on different terms. */}
+        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, lineHeight: 1.55 }}>
+          Days granted per year. Leave blank to use the company default set in <b>Settings → Leave allowance</b>.
+        </div>
         <div className="cp-form-grid">
-          <Field label="Annual days"><input className="cp-input" value={f.bal.annual} onChange={(e) => setBal("annual", e.target.value)} /></Field>
-          <Field label="Sick days"><input className="cp-input" value={f.bal.sick} onChange={(e) => setBal("sick", e.target.value)} /></Field>
-          <Field label="Compassionate days"><input className="cp-input" value={f.bal.comp} onChange={(e) => setBal("comp", e.target.value)} /></Field>
+          <Field label="Annual days" hint="Per year"><input className="cp-input" placeholder="Company default" value={f.entitlement?.annual ?? ""} onChange={(e) => setEnt("annual", e.target.value)} /></Field>
+          <Field label="Sick days" hint="Per year"><input className="cp-input" placeholder="Company default" value={f.entitlement?.sick ?? ""} onChange={(e) => setEnt("sick", e.target.value)} /></Field>
+          <Field label="Compassionate days" hint="Per year"><input className="cp-input" placeholder="Company default" value={f.entitlement?.comp ?? ""} onChange={(e) => setEnt("comp", e.target.value)} /></Field>
           <Field label="Next of kin"><input className="cp-input" value={f.kin} onChange={(e) => set("kin", e.target.value)} /></Field>
           <Field label="Emergency contact"><input className="cp-input" value={f.emergency} onChange={(e) => set("emergency", e.target.value)} /></Field>
         </div>
@@ -543,7 +558,8 @@ function FormGroup({ title, note, children }) {
   );
 }
 
-function ProfileDrawer({ emp, manager, isHR, isManager, isSelf, onClose }) {
+function ProfileDrawer({ emp, db, manager, isHR, isManager, isSelf, onClose }) {
+  const drawerBal = leaveBalances(emp, db);
   return (
     <div className="cp-drawer-wrap" onClick={onClose}>
       <div className="cp-drawer" onClick={(e) => e.stopPropagation()}>
@@ -606,9 +622,9 @@ function ProfileDrawer({ emp, manager, isHR, isManager, isSelf, onClose }) {
         {(isHR || isManager || isSelf) && (
           <DrawerGroup title="Leave balance">
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 4 }}>
-              <BalanceChip label="Annual" left={emp.bal.annual} />
-              <BalanceChip label="Sick" left={emp.bal.sick} />
-              <BalanceChip label="Compassionate" left={emp.bal.comp} />
+              <BalanceChip label="Annual" b={drawerBal.annual} />
+              <BalanceChip label="Sick" b={drawerBal.sick} />
+              <BalanceChip label="Compassionate" b={drawerBal.comp} />
             </div>
           </DrawerGroup>
         )}
@@ -626,11 +642,14 @@ function DrawerGroup({ title, children, locked }) {
     </div>
   );
 }
-function BalanceChip({ label, left }) {
+function BalanceChip({ label, b }) {
   return (
-    <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "8px 12px", minWidth: 96 }}>
+    <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "8px 12px", minWidth: 110 }}>
       <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 500 }}>{label}</div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 600 }}>{left}<span style={{ fontSize: 11.5, color: "var(--muted)" }}> days left</span></div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 600 }}>
+        {b.left}<span style={{ fontSize: 11.5, color: "var(--muted)" }}> of {b.granted} days</span>
+      </div>
+      {b.carried > 0 && <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>{b.carried} carried over</div>}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { nowHM, hmToMin, durLabel } from "../features/attendance/attendanceLogic
 import { parseD, todayISO, fmtShort, daysInclusive } from "../lib/format.js";
 import { getPosition, locErrLabel } from "../lib/geo.js";
 import { absenceHistory, leaveHistoryFor, leaveTakenByType } from "../features/insights/absenceHistory.js";
+import { leaveBalances } from "./../features/leave/entitlements.js";
 import { Avatar, EmpAvatar, Badge, Card, Btn, Field, Section, PageHead, Empty, Modal, Stat } from "../components/ui.jsx";
 
 /* The three leave types with a tracked balance, in display order. Mirrors
@@ -136,7 +137,10 @@ function TeamLeaveCard({ people, db, onView }) {
                       {pending > 0 && <Badge tone="warn">{pending} pending</Badge>}
                     </div>
                     <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
-                      {BAL_VIEW.map((b) => `${e.bal?.[b.key] ?? 0} ${b.label.toLowerCase()}`).join(" · ")} left
+                      {BAL_VIEW.map((v) => {
+                        const x = leaveBalances(e, db)[v.key];
+                        return `${x.left}/${x.granted} ${v.label.toLowerCase()}`;
+                      }).join(" · ")}
                     </div>
                   </div>
                   <button className="cp-mini" onClick={() => onView(e)}><Eye size={14} /> View</button>
@@ -159,6 +163,7 @@ function LeaveHistoryModal({ db, emp, onClose }) {
   const requests = leaveHistoryFor(db, emp?.id);
   const year = today.getFullYear();
   const taken = leaveTakenByType(db, emp?.id, year);
+  const bal = leaveBalances(emp, db, year);
 
   const rate = hist.expected ? Math.round((hist.present / hist.expected) * 100) : 0;
 
@@ -177,10 +182,10 @@ function LeaveHistoryModal({ db, emp, onClose }) {
           <div key={key} style={{ flex: "1 1 140px", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px" }}>
             <div style={{ fontSize: 12, color: "var(--muted)" }}>{label}</div>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700, marginTop: 2 }}>
-              {emp?.bal?.[key] ?? 0}<span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--muted)" }}> left</span>
+              {bal[key].left}<span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--muted)" }}> / {bal[key].granted}</span>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
-              {taken[label] || 0} taken in {year}
+              {bal[key].taken} taken in {year}{bal[key].carried > 0 ? ` · ${bal[key].carried} carried` : ""}
             </div>
           </div>
         ))}
@@ -257,6 +262,8 @@ function LeavePage({ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, a
   // own request has no business opening a colleague's attendance history,
   // and their own is already the whole page.
   const [viewEmp, setViewEmp] = useState(null);
+  // Derived, not stored — see features/leave/entitlements.js.
+  const myBal = leaveBalances(myEmp, db);
   const canViewRecords = isHR || isManager;
   const openRecord = canViewRecords ? (l) => setViewEmp(empById(l.empId) || null) : null;
   // HR sees the whole company; a manager sees only their own reports.
@@ -291,9 +298,9 @@ function LeavePage({ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, a
 
       {myEmp && (
         <div className="cp-tiles" style={{ marginBottom: 18 }}>
-          <BalanceCard label="Annual leave" left={myEmp.bal.annual} />
-          <BalanceCard label="Sick leave" left={myEmp.bal.sick} />
-          <BalanceCard label="Compassionate" left={myEmp.bal.comp} />
+          <BalanceCard label="Annual leave" b={myBal.annual} />
+          <BalanceCard label="Sick leave" b={myBal.sick} />
+          <BalanceCard label="Compassionate" b={myBal.comp} />
         </div>
       )}
 
@@ -443,14 +450,22 @@ function LeavePage({ db, isHR, isManager, myTeam, myEmp, empById, decideLeave, a
     </div>
   );
 }
-function BalanceCard({ label, left }) {
+/* `b` is one type's figures from leaveBalances() — entitlement, carried,
+   taken, granted, left. Showing "14 of 20" rather than a bare 14 is the
+   whole reason entitlements exist: a lone number tells you nothing about
+   whether you're running out. */
+function BalanceCard({ label, b }) {
   return (
     <Card pad={18}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 600 }}>{left}</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 600 }}>
+          {b.left}<span style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)" }}> / {b.granted}</span>
+        </span>
       </div>
-      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 7 }}>days remaining</div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 7 }}>
+        {b.taken} taken{b.carried > 0 ? ` · ${b.carried} carried over` : ""}
+      </div>
     </Card>
   );
 }
