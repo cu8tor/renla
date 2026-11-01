@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, Wallet, Search, Plus, UserPlus, Copy, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Unlock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert } from "lucide-react";
+import { Users, Wallet, Search, Plus, UserPlus, Copy, X, ChevronRight, Briefcase, Building2, Phone, Mail, MapPin, ShieldCheck, Users2, Lock, Unlock, Landmark, CreditCard, Trash2, Pencil, ShieldAlert, Send, Timer } from "lucide-react";
 import { emptyPay } from "../features/payroll/payrollEngine.js";
 import { CHECK_KEYS, hasOverrides } from "../features/attendance/attendanceLogic.js";
 import { naira, grossOf, fmtShort, copyText } from "../lib/format.js";
@@ -16,6 +16,23 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
   const [inviting, setInviting] = useState(false);
   const [q, setQ] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
+  const [resending, setResending] = useState("");
+  const [resentLink, setResentLink] = useState(null);   // { emp, link, error } | null
+
+  // create_invite revokes whatever was outstanding for this person and issues
+  // a new token, so a resend quietly invalidates the old link rather than
+  // leaving two live invites for one employee.
+  const resendInvite = async (emp) => {
+    setResending(emp.id);
+    try {
+      const out = await sendInvite({ employeeId: emp.id, email: emp.email, name: emp.name });
+      if (out.ok) toast(`Invite re-sent to ${emp.email}`);
+      else { setResentLink({ emp, link: out.link, error: out.error }); toast(out.error, "warn", 9000); }
+    } catch (err) {
+      toast(err.message, "danger", 9000);
+    }
+    setResending("");
+  };
 
   const list = isHR ? db.employees : isManager ? myTeam : db.employees;
   const shown = q.trim() ? list.filter((e) => (e.name + e.title + e.dept).toLowerCase().includes(q.toLowerCase())) : list;
@@ -74,6 +91,15 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
                     <td onClick={(ev) => ev.stopPropagation()}>
                       {isHR ? (
                         <div style={{ display: "flex", gap: 6 }}>
+                          {/* Only for someone who has an email but hasn't signed in
+                              yet — once they have a login there is nothing to invite
+                              them to, and without an email there is nowhere to send it. */}
+                          {e.email && !db.users.some((u) => u.employeeId === e.id) && (
+                            <button className="cp-mini" title={`Send ${e.name.split(" ")[0]} a fresh invite email`}
+                              disabled={resending === e.id} onClick={() => resendInvite(e)}>
+                              {resending === e.id ? <Timer size={13} /> : <Send size={13} />}
+                            </button>
+                          )}
                           <button className="cp-mini" title={e.profileLocked ? "Unlock — let them edit their own details again" : "Lock — freeze their own details so only HR can change them"}
                             onClick={() => setEmployeeLock(e.id, !e.profileLocked)}>
                             {e.profileLocked ? <Unlock size={13} /> : <Lock size={13} />}
@@ -115,6 +141,23 @@ function EmployeesPage({ db, isHR, isManager, myTeam, myEmp, saveEmployee, delet
       {confirmDel && (
         <DeleteEmployeeModal emp={confirmDel} onClose={() => setConfirmDel(null)}
           onConfirm={() => { deleteEmployee(confirmDel.id); setConfirmDel(null); }} />
+      )}
+
+      {/* A resend whose email failed still produced a working invite, so put
+          the link in front of HR rather than leaving them with a toast and
+          nothing to act on. */}
+      {resentLink && (
+        <Modal title="Invite created, but not emailed" onClose={() => setResentLink(null)}>
+          <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 8 }}>
+            {resentLink.link
+              ? <>The invite for <b>{resentLink.emp.name}</b> is ready — send them this link yourself and it works exactly the same.</>
+              : <>Couldn't create an invite for <b>{resentLink.emp.name}</b>.</>}
+          </div>
+          <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 14, lineHeight: 1.55 }}>{resentLink.error}</div>
+          {resentLink.link
+            ? <CopyBox value={resentLink.link} label="Invite link" toast={toast} />
+            : <CopyBox value={resentLink.emp.id} label="Staff code" toast={toast} />}
+        </Modal>
       )}
     </div>
   );
