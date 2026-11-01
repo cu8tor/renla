@@ -36,7 +36,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CORS = {
   "Access-Control-Allow-Origin": Deno.env.get("APP_URL") ?? "*",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  // Every header the browser is allowed to send. A header missing from
+  // this list fails the preflight check, and the browser then refuses
+  // to send the real request — which surfaces as "Failed to fetch"
+  // with a successful OPTIONS in the logs and no POST at all.
+  "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
