@@ -57,7 +57,10 @@ function DocsPage({ db, isHR, addDoc, deleteDoc, toast, companyId }) {
             <Field label="Or paste a link" hint="Google Drive, Dropbox — used only if no file is uploaded"><input className="cp-input" value={f.link} onChange={(e) => setF({ ...f, link: e.target.value })} placeholder="https://…" /></Field>
           </div>
           <div style={{ marginTop: 16 }}>
-            <Field label="Upload the file" hint="Stored privately — only your company can open it">
+            {/* The limit is stated before anyone picks a file, not after a
+                rejected upload — by then they've already waited for a
+                10MB read that was never going to be accepted. */}
+            <Field label="Upload the file" hint="Stored privately — only your company can open it. Up to 10 MB; photos are resized automatically.">
               <input type="file" className="cp-input" disabled={uploading}
                 onChange={async (e) => {
                   const file = e.target.files && e.target.files[0];
