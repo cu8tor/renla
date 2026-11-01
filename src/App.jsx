@@ -1003,6 +1003,22 @@ function AppShell() {
   ];
   const go = (k) => { navigate("/" + k); setNavOpen(false); };
 
+  /* Until someone has given HR what HR said it needs, /welcome is the only
+     page they get. Left as a dismissible nudge, the required details simply
+     don't arrive — and the cost of that lands on payroll day, when the
+     missing thing is a bank account.
+
+     HR Admins are exempt on purpose: they decide what's required, so
+     trapping them behind their own policy would lock them out of the
+     Settings page where they'd go to change it. /profile stays reachable
+     too, since that's where a photo or an ID document is uploaded and
+     /welcome only covers typed fields. */
+  const myOnboarding = myEmp ? onboardingChecklist(myEmp, db.onboarding, (db.employeeDocs || []).filter((d) => d.empId === myEmp.id)) : null;
+  const mustFinishOnboarding = Boolean(
+    myEmp && !isHR && myOnboarding && myOnboarding.requiredTotal > 0 && !myOnboarding.complete && !myEmp.profileLocked,
+  );
+  const onboardingExempt = ["/welcome", "/profile"].includes(location.pathname);
+
   return (
     <div style={{ ...theme, fontFamily: "var(--font-body)", color: "var(--ink)", background: "var(--paper)" }}>
       <StyleTag />
@@ -1079,6 +1095,9 @@ function AppShell() {
 
           <main className="cp-content">
             <ErrorBoundary key={view}>
+              {mustFinishOnboarding && !onboardingExempt ? (
+                <Navigate to="/welcome" replace />
+              ) : (
               <Routes>
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={
@@ -1126,6 +1145,7 @@ function AppShell() {
                     a key that existed. */}
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
+              )}
             </ErrorBoundary>
           </main>
         </div>

@@ -52,11 +52,20 @@ export default function WelcomePage({ db, myEmp, saveMyProfile, go }) {
     return init;
   });
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
 
   const done = () => go("dashboard");
 
   const save = () => {
+    // Say what's still blank rather than saving a half-answer and letting
+    // the app bounce them back here with no explanation.
+    const blank = todo.filter(({ key }) => FIELD_FOR[key].keys.some((k) => !String(f[k] || "").trim()));
+    if (blank.length) {
+      setErr(`Still needed: ${blank.map(({ key }) => FIELD_FOR[key].label.toLowerCase()).join(", ")}.`);
+      return;
+    }
+    setErr("");
     setBusy(true);
     saveMyProfile(f);
     setBusy(false);
@@ -136,13 +145,22 @@ export default function WelcomePage({ db, myEmp, saveMyProfile, go }) {
             })}
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 20, flexWrap: "wrap" }}>
+          {/* No "do this later". Offered the choice, people take it, and
+              the details HR actually needs never arrive — the cost shows
+              up on payroll day as a missing bank account. Everything here
+              was explicitly ticked as required by their own employer. */}
+          {err && <div style={{ fontSize: 13, color: "var(--danger)", marginTop: 16, lineHeight: 1.5 }}>{err}</div>}
+
+          <div style={{ marginTop: 20 }}>
             <Btn icon={busy ? Timer : Check} disabled={busy} onClick={save}>
               {busy ? "Saving…" : "Save and continue"}
             </Btn>
-            {/* Never trap anyone in this form. A missing detail is a
-                nudge on the dashboard, not a locked door. */}
-            <button className="cp-link" onClick={done}>I'll do this later</button>
+          </div>
+
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 14, lineHeight: 1.55 }}>
+            {db.company?.name || "Your employer"} asks everyone for these before you start.
+            If you don't have something to hand, close this and come back — nothing is lost,
+            and you'll land right back here.
           </div>
         </Section>
       </Card>
