@@ -8,8 +8,10 @@
    drift out of sync with each other.
    ===================================================================== */
 
-// All off by default — turning this on for an existing company doesn't
-// suddenly mark everyone's profile "incomplete" until HR opts in.
+// What an EXISTING company falls back to when it has never saved any
+// onboarding settings: all off. Turning requirements on retroactively
+// would mark every current employee's profile incomplete overnight,
+// which is not a decision this code gets to make on HR's behalf.
 const DEFAULT_ONBOARDING = {
   requireEmergency: false,
   requireKin: false,
@@ -19,6 +21,32 @@ const DEFAULT_ONBOARDING = {
   requireBvn: false,
   requirePhoto: false,
   requireIdDocument: false,
+};
+
+// What a BRAND NEW company starts with — a different question, and for a
+// long time the same answer, which meant the whole onboarding step was
+// invisible until someone happened to find the Settings page and tick
+// something. A new company has no existing staff to retroactively flag,
+// so there's nothing to protect and a sensible default costs nothing.
+//
+// Three on, chosen because each one blocks something concrete when it's
+// missing: you cannot pay someone without their bank details, cannot
+// file their tax or pension without a NIN, and cannot reach anyone if
+// they're hurt at work without an emergency contact.
+//
+// Everything else stays off deliberately. BVN is sensitive and an
+// account number is enough to pay someone; next of kin largely repeats
+// the emergency contact; a named reference is a recruitment-stage thing,
+// not ongoing HR. A mandatory profile picture is the item most likely to
+// make someone abandon setup, and nothing breaks without one.
+//
+// HR can change any of it in Settings → Employee onboarding straight
+// after signing up.
+const NEW_COMPANY_ONBOARDING = {
+  ...DEFAULT_ONBOARDING,
+  requireBank: true,
+  requireNin: true,
+  requireEmergency: true,
 };
 
 // Each item: the onboarding-settings key that makes it required, a
@@ -52,4 +80,4 @@ function onboardingChecklist(emp, cfg, docs) {
   return { items, requiredTotal: required.length, requiredDone, complete: required.every((i) => i.done) };
 }
 
-export { DEFAULT_ONBOARDING, onboardingChecklist };
+export { DEFAULT_ONBOARDING, NEW_COMPANY_ONBOARDING, onboardingChecklist };

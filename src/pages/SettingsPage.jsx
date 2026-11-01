@@ -92,8 +92,14 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
 
         <Card>
           <Section title="Employee onboarding">
+            {/* Says plainly that ticking a box gates the app. HR is
+                choosing on behalf of people who will hit a wall if they
+                don't have the thing to hand, so it shouldn't be a
+                surprise. */}
             <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
-              Tick what every new hire has to fill in on their own <b>My profile</b> page before they're considered fully onboarded. Off by default — turning one on doesn't retroactively flag anyone who's been here a while, it just starts being asked of new starters and anyone who hasn't filled it in yet.
+              Tick what a new hire has to give you before they can start using Renla. They're asked right after setting their password and can't get past that screen until it's done — so only tick what you genuinely need.
+              <br /><br />
+              New companies start with bank details, NIN and an emergency contact already on. Turning one on later never locks out someone who's already been clocking in — they get a reminder on their dashboard instead, so nobody is ever stuck at the gate because a new box was ticked that morning.
             </div>
             <div className="cp-form-grid">
               {ONBOARDING_FIELDS.map(({ key, label }) => (

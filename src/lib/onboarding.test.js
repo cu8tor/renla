@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_ONBOARDING, onboardingChecklist } from "./onboarding.js";
+import { DEFAULT_ONBOARDING, NEW_COMPANY_ONBOARDING, onboardingChecklist } from "./onboarding.js";
 
 const blankEmp = { emergency: "", kin: "", referenceName: "", referencePhone: "", bank: "", acct: "", nin: "", bvn: "", avatarPath: "" };
 
@@ -64,6 +64,38 @@ describe("onboardingChecklist", () => {
     const c = onboardingChecklist(undefined, { requireEmergency: true }, []);
     expect(c.requiredTotal).toBe(1);
     expect(c.requiredDone).toBe(0);
+    expect(c.complete).toBe(false);
+  });
+});
+
+/* These three defaults decide what every brand-new company asks its staff
+   for, so they're worth pinning down rather than leaving to a later
+   accidental edit. */
+describe("NEW_COMPANY_ONBOARDING", () => {
+  it("requires exactly bank details, NIN and an emergency contact", () => {
+    const on = Object.keys(NEW_COMPANY_ONBOARDING).filter((k) => NEW_COMPANY_ONBOARDING[k]);
+    expect(on.sort()).toEqual(["requireBank", "requireEmergency", "requireNin"]);
+  });
+
+  it("leaves the sensitive and optional ones off", () => {
+    expect(NEW_COMPANY_ONBOARDING.requireBvn).toBe(false);
+    expect(NEW_COMPANY_ONBOARDING.requirePhoto).toBe(false);
+    expect(NEW_COMPANY_ONBOARDING.requireKin).toBe(false);
+    expect(NEW_COMPANY_ONBOARDING.requireReference).toBe(false);
+    expect(NEW_COMPANY_ONBOARDING.requireIdDocument).toBe(false);
+  });
+
+  it("covers every key the all-off default does, so nothing is left undefined", () => {
+    expect(Object.keys(NEW_COMPANY_ONBOARDING).sort()).toEqual(Object.keys(DEFAULT_ONBOARDING).sort());
+  });
+
+  it("does not change the fallback used for existing companies", () => {
+    expect(Object.values(DEFAULT_ONBOARDING).every((v) => v === false)).toBe(true);
+  });
+
+  it("gives a new company three real items to ask for", () => {
+    const c = onboardingChecklist(blankEmp, NEW_COMPANY_ONBOARDING, []);
+    expect(c.requiredTotal).toBe(3);
     expect(c.complete).toBe(false);
   });
 });

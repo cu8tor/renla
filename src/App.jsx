@@ -1014,8 +1014,22 @@ function AppShell() {
      too, since that's where a photo or an ID document is uploaded and
      /welcome only covers typed fields. */
   const myOnboarding = myEmp ? onboardingChecklist(myEmp, db.onboarding, (db.employeeDocs || []).filter((d) => d.empId === myEmp.id)) : null;
+
+  /* Blocking applies to people who haven't started working yet, not to
+     everyone with a gap. Someone who has clocked in before has a job to
+     do: if HR ticks a new requirement on Monday morning, that person
+     should not be standing at the gate unable to clock in because their
+     NIN is at home. They get the dashboard nudge instead.
+
+     "Has never clocked in" is the proxy for "hasn't started" — crude, but
+     it's the one signal that is always true of a genuine new joiner and
+     never true of someone mid-employment, and it fails in the safe
+     direction either way. */
+  const hasEverClockedIn = Boolean(myEmp && db.attendance.some((a) => a.empId === myEmp.id && a.clockIn));
+
   const mustFinishOnboarding = Boolean(
-    myEmp && !isHR && myOnboarding && myOnboarding.requiredTotal > 0 && !myOnboarding.complete && !myEmp.profileLocked,
+    myEmp && !isHR && myOnboarding && myOnboarding.requiredTotal > 0 && !myOnboarding.complete
+      && !myEmp.profileLocked && !hasEverClockedIn,
   );
   const onboardingExempt = ["/welcome", "/profile"].includes(location.pathname);
 

@@ -4,6 +4,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { downscaleToSquare, shrinkImageFile, prettySize } from "./image.js";
+import { NEW_COMPANY_ONBOARDING } from "./onboarding.js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -72,6 +73,24 @@ export async function createCompany(companyName, fullName, jobTitle) {
     p_job_title: jobTitle || "Founder",
   });
   if (error) throw new Error(friendly(error.message));
+
+  // Give the new company a sensible set of onboarding requirements rather
+  // than none at all — see NEW_COMPANY_ONBOARDING for which three and why.
+  // Done here rather than in the RPC so it stays visible in this codebase
+  // and changing it doesn't need a migration.
+  //
+  // Best effort on purpose: the company exists and the person is signed
+  // in to it either way, and HR can set these in Settings. Failing the
+  // whole signup over a default would be a bad trade.
+  try {
+    const { data: prof } = await supabase
+      .from("profiles").select("company_id").eq("id", (await supabase.auth.getUser()).data.user?.id).maybeSingle();
+    if (prof?.company_id) {
+      await supabase.from("company_settings")
+        .update({ onboarding: NEW_COMPANY_ONBOARDING })
+        .eq("company_id", prof.company_id);
+    }
+  } catch { /* HR can tick these in Settings; not worth failing signup for */ }
 }
 
 export async function joinCompany(employeeId) {
