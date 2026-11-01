@@ -110,6 +110,39 @@ export async function acceptInvite(token) {
   if (error) throw new Error(friendly(error.message));
 }
 
+/* What the join page can show before anyone has signed in: who invited
+   them, under what name, and which address the invite is locked to.
+   Returns null for an unknown, used, cancelled or malformed token — the
+   page treats all of those the same way, because distinguishing them
+   would turn this into a way of probing for valid invites. */
+export async function inviteDetails(token) {
+  const { data, error } = await supabase.rpc("invite_details", { p_token: token });
+  if (error) throw new Error(friendly(error.message));
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return {
+    email: row.invite_email,
+    employeeName: row.employee_name,
+    companyName: row.company_name,
+    expired: Boolean(row.is_expired),
+  };
+}
+
+/* Creates the invited person's login with the password they chose, with
+   the email already confirmed — the invite itself proved they own that
+   address. Returns { email, existing }; `existing` means they already
+   had an account and should sign in with their own password instead. */
+export async function claimInvite(token, password) {
+  const res = await fetch(`${url}/functions/v1/claim-invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: key },
+    body: JSON.stringify({ token, password }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || out.error) throw new Error(out.error || "Couldn't set up that account.");
+  return out;
+}
+
 export async function getSession() {
   const { data } = await supabase.auth.getSession();
   return data.session;

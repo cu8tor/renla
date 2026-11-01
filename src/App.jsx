@@ -61,6 +61,8 @@ import { RotaPage } from "./pages/RotaPage.jsx";
 import { PayrollPage } from "./pages/PayrollPage.jsx";
 import { SoonPage } from "./pages/SoonPage.jsx";
 import { ProfilePage } from "./pages/ProfilePage.jsx";
+import JoinPage from "./pages/JoinPage.jsx";
+import WelcomePage from "./pages/WelcomePage.jsx";
 import { LeaderboardPage } from "./pages/LeaderboardPage.jsx";
 /* ================================================================== */
 /*  APP                                                                */
@@ -71,16 +73,14 @@ import { LeaderboardPage } from "./pages/LeaderboardPage.jsx";
    renders the Router itself. Keeping the Router here means App.jsx stays
    fully self-contained; nothing about the real project's main.jsx/entry
    point needs to change. */
-/* An invite link is /join?invite=TOKEN. Signup requires email confirmation,
-   and that round-trip returns the person to the Site URL with the query
-   string gone — so the token can't just live in the URL. Grab it at module
-   load, before anything renders or redirects, and let NewCompany claim it
-   once there's a session. The catch-all "*" route already sends /join to
-   the dashboard, where the auth gate takes over. */
-try {
-  const inviteToken = new URLSearchParams(window.location.search).get("invite");
-  if (inviteToken) localStorage.setItem("renla.invite", inviteToken);
-} catch { /* private mode / storage disabled — they can still use a staff code */ }
+/* An invite link is /join?invite=TOKEN, and JoinPage handles it end to
+   end without the token ever leaving the URL — see that file for why the
+   old stash-and-claim route was fragile.
+
+   The stash survives for one case only: someone who already has a Renla
+   account follows an invite. They can't be given a new login, so JoinPage
+   parks the token here and AuthPages claims it after they sign in. */
+export const INVITE_STASH_KEY = "renla.invite";
 
 export default function App() {
   return (
@@ -397,6 +397,13 @@ function AppShell() {
   }
 
   if (recovery) return <ResetPasswordScreen theme={theme} dark={dark} setDark={setDark} onDone={() => setRecovery(false)} />;
+
+  /* The join page runs before there's a session, so it has to sit above
+     the auth gate — otherwise an invited person meets the sign-in screen
+     and the invite never gets a chance to introduce itself. */
+  if (window.location.pathname === "/join") {
+    return <JoinPage theme={theme} dark={dark} setDark={setDark} />;
+  }
 
   if (!profile) return <AuthScreen theme={theme} dark={dark} setDark={setDark} linkError={authLinkError} />;
   if (profile.noCompany) return <NewCompany theme={theme} dark={dark} setDark={setDark} profile={profile} />;
@@ -1105,6 +1112,9 @@ function AppShell() {
                 } />
                 <Route path="/profile" element={
                   <ProfilePage {...{ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocument, deleteMyDocument }} />
+                } />
+                <Route path="/welcome" element={
+                  <WelcomePage {...{ db, myEmp, saveMyProfile, go }} />
                 } />
                 <Route path="/leaderboard" element={
                   <LeaderboardPage {...{ db, myEmp, isHR, go }} />

@@ -349,4 +349,4 @@ function NewCompany({ theme, dark, setDark, profile }) {
 }
 
 
-export { NotConfigured, AuthShell, AuthScreen, NewCompany, ResetPasswordScreen };
+export { NotConfigured, AuthShell, AuthScreen, NewCompany, ResetPasswordScreen, PasswordInput };
