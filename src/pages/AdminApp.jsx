@@ -22,7 +22,7 @@ import AdminPage from "./AdminPage.jsx";
    ===================================================================== */
 
 export default function AdminApp({ theme, dark, setDark }) {
-  const [state, setState] = useState("checking");   // checking | out | denied | in
+  const [state, setState] = useState("checking");   // checking | out | denied | in | notset
   const [email, setEmail] = useState("");
 
   useEffect(() => {
@@ -31,10 +31,18 @@ export default function AdminApp({ theme, dark, setDark }) {
       const session = await getSession();
       if (!alive) return;
       if (!session) { setState("out"); return; }
-      const ok = await isPlatformAdmin();
-      if (!alive) return;
       setEmail(session.user?.email || "");
-      setState(ok ? "in" : "denied");
+      try {
+        const ok = await isPlatformAdmin();
+        if (!alive) return;
+        setState(ok ? "in" : "denied");
+      } catch (e) {
+        // The database doesn't have the admin tables yet. Say that,
+        // rather than telling someone they aren't an admin when the
+        // question has never been asked of anything.
+        if (!alive) return;
+        setState(e.notInstalled ? "notset" : "denied");
+      }
     })();
     return () => { alive = false; };
   }, []);
@@ -59,6 +67,23 @@ export default function AdminApp({ theme, dark, setDark }) {
       }} />;
   }
 
+  if (state === "notset") {
+    return (
+      <Chrome theme={theme} dark={dark} setDark={setDark} email={email}
+        onSignOut={async () => { await sbSignOut(); setState("out"); }}>
+        <div style={{ maxWidth: 480, margin: "60px auto 0", textAlign: "center" }}>
+          <AlertCircle size={26} style={{ color: "var(--warn)" }} />
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, margin: "14px 0 8px" }}>Not set up yet</h2>
+          <p style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.6 }}>
+            This database doesn't have the admin tables. Run <b>catch-up-migration-14.sql</b> in the
+            Supabase SQL editor, then reload — it creates the plans, the wallet ledger and the admin
+            list, and adds you to it.
+          </p>
+        </div>
+      </Chrome>
+    );
+  }
+
   if (state === "denied") {
     return (
       <Chrome theme={theme} dark={dark} setDark={setDark}>
@@ -66,8 +91,9 @@ export default function AdminApp({ theme, dark, setDark }) {
           <AlertCircle size={26} style={{ color: "var(--danger)" }} />
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, margin: "14px 0 8px" }}>Not a Renla admin</h2>
           <p style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.6 }}>
-            <b>{email}</b> is signed in, but isn't on the platform admin list. If you meant to open
-            your own company's Renla, go to the main app instead.
+            <b>{email}</b> is signed in, but isn't on the platform admin list. Add this account with the
+            statement at the bottom of <b>catch-up-migration-14.sql</b>, or sign in with an account that
+            is. If you meant to open your own company's Renla, the main app is that way.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 20 }}>
             <button className="cp-btn cp-btn-ghost cp-btn-md" onClick={async () => { await sbSignOut(); setState("out"); }}>

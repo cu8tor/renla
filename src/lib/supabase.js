@@ -222,7 +222,18 @@ function friendly(msg = "") {
 
 export async function isPlatformAdmin() {
   const { data, error } = await supabase.rpc("is_platform_admin");
-  if (error) return false;              // not an admin, or not signed in
+  if (error) {
+    // A missing function means migration 14 was never run, which is a
+    // completely different problem from "you aren't an admin" — and
+    // returning false for both made the second message lie about the
+    // first. Postgres reports an unknown function as 42883.
+    if (error.code === "42883" || /function .*is_platform_admin.* does not exist/i.test(error.message || "")) {
+      const e = new Error("Renla admin isn't set up on this database yet — catch-up-migration-14.sql hasn't been run.");
+      e.notInstalled = true;
+      throw e;
+    }
+    return false;                       // signed in, just not an admin
+  }
   return Boolean(data);
 }
 
