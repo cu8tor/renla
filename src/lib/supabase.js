@@ -371,6 +371,18 @@ export async function adminResolveRequest(id, status) {
   if (error) throw new Error(error.message);
 }
 
+// Settles the claim and moves the money in one call. `amount` overrides
+// what the customer typed, for when the bank says something else.
+export async function adminApproveRequest(id, amount, reference) {
+  const { data, error } = await supabase.rpc("admin_approve_request", {
+    p_id: id,
+    p_amount: amount == null || amount === "" ? null : Number(amount),
+    p_reference: reference || "",
+  });
+  if (error) throw new Error(friendly(error.message));
+  return data;
+}
+
 export async function adminApplyTermPayment(companyId, term, paid, reference) {
   const { data, error } = await supabase.rpc("admin_apply_term_payment", {
     p_company: companyId, p_term: term, p_paid: paid, p_reference: reference || "",

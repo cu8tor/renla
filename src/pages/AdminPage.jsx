@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle, Check, X, FileText } from "lucide-react";
 import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans,
-  adminOpenRequests, adminResolveRequest, adminSetBankDetails, platformBankDetails, receiptUrl } from "../lib/supabase.js";
+  adminOpenRequests, adminResolveRequest, adminApproveRequest, adminSetBankDetails, platformBankDetails, receiptUrl } from "../lib/supabase.js";
 import { naira } from "../lib/format.js";
 import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal, Stat } from "../components/ui.jsx";
 
@@ -39,6 +39,7 @@ export default function AdminPage() {
   const [detail, setDetail] = useState(null);
   const [payFor, setPayFor] = useState(null);     // company row we're recording against
   const [requests, setRequests] = useState([]);
+  const [approving, setApproving] = useState(null);  // request being approved
   const [bank, setBank] = useState(null);
 
   const load = useCallback(async () => {
@@ -252,7 +253,8 @@ export default function AdminPage() {
           <Section title={`Requests · ${requests.length}`}>
             <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
               Companies asking to change plan or pay ahead. Nothing has been charged — confirm the amount
-              with them, record the payment when it lands, then mark this done.
+              the bank first, then approve — approving credits the wallet and
+              closes the claim together.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {requests.map((r) => (
@@ -277,9 +279,10 @@ export default function AdminPage() {
                         }}><FileText size={13} /> Receipt</button>
                     )}
                     <button className="cp-mini" onClick={() => openDetail({ id: r.companyId, name: r.companyName })}>Open</button>
-                    <button className="cp-mini cp-mini-ok" title="Mark as handled"
-                      onClick={async () => { try { await adminResolveRequest(r.id, "done"); await load(); } catch (e) { setErr(e.message); } }}>
-                      <Check size={13} />
+                    <button className="cp-mini cp-mini-ok"
+                      title={r.kind === "plan_change" ? "Approve the plan change" : "Credit the wallet and close this claim"}
+                      onClick={() => setApproving(r)}>
+                      <Check size={13} /> Approve
                     </button>
                     <button className="cp-mini cp-mini-no" title="Decline"
                       onClick={async () => { try { await adminResolveRequest(r.id, "declined"); await load(); } catch (e) { setErr(e.message); } }}>
@@ -317,7 +320,87 @@ export default function AdminPage() {
 
       {payFor && <PaymentModal co={payFor} onClose={() => setPayFor(null)}
         onDone={async () => { setPayFor(null); await load(); }} onError={setErr} />}
+
+      {approving && <ApproveModal req={approving} onClose={() => setApproving(null)}
+        onDone={async () => { setApproving(null); await load(); }} onError={setErr} />}
     </div>
+  );
+}
+
+/* Approving a payment claim.
+
+   The amount is editable and starts at what the customer typed, because
+   the customer's number and the bank's number disagree often enough that
+   trusting the claim would quietly put wrong money in the ledger. What
+   you confirm here is what gets credited. */
+function ApproveModal({ req, onClose, onDone, onError }) {
+  const money = req.kind !== "plan_change";
+  const [amount, setAmount] = useState(req.amount != null ? String(req.amount) : "");
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    const n = Number(String(amount).replace(/[^0-9.]/g, ""));
+    if (money && !(n > 0)) { setErr("How much actually arrived?"); return; }
+    setErr(""); setBusy(true);
+    try {
+      await adminApproveRequest(req.id, money ? n : null, reference.trim());
+      await onDone();
+    } catch (e) { setErr(e.message); onError?.(e.message); setBusy(false); }
+  };
+
+  const claimed = req.amount != null ? Number(req.amount) : null;
+  const typed = Number(String(amount).replace(/[^0-9.]/g, ""));
+  const differs = money && claimed != null && typed > 0 && typed !== claimed;
+
+  return (
+    <Modal title={`Approve — ${req.companyName}`} onClose={onClose} onSubmit={submit}
+      submitDisabled={busy}
+      submitLabel={busy ? "Posting…" : money ? `Credit ${naira(typed || 0)}` : "Approve"}>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {money ? (
+          <>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55 }}>
+              Check the money is in the bank before approving. This credits the
+              wallet{req.term ? " and moves their paid-through date forward" : ""} and
+              cannot be undone from here — a mistake needs a correction afterwards.
+            </div>
+
+            <Field label="Amount to credit (₦)"
+              hint={claimed != null ? `They said ${naira(claimed)} — change it if the bank says otherwise` : "What landed in the bank"}>
+              <input className="cp-input" autoFocus value={amount}
+                onChange={(e) => setAmount(e.target.value)} placeholder="5000" />
+            </Field>
+
+            {differs && (
+              <div style={{ fontSize: 12.5, color: "var(--warn)" }}>
+                Crediting {naira(typed)}, not the {naira(claimed)} they claimed.
+              </div>
+            )}
+
+            <Field label="Bank reference" hint="Optional — it's what you'll search for later">
+              <input className="cp-input" value={reference}
+                onChange={(e) => setReference(e.target.value)} />
+            </Field>
+
+            {!req.receiptPath && (
+              <div style={{ fontSize: 12.5, color: "var(--warn)" }}>
+                No receipt attached, so there's nothing to check this against but the bank.
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+            Move {req.companyName} to the <b>{req.plan}</b> plan. No money moves —
+            their next monthly charge changes.
+          </div>
+        )}
+
+        {err && <div className="cp-formerr">{err}</div>}
+      </div>
+    </Modal>
   );
 }
 
