@@ -1,0 +1,186 @@
+#  Takes an encrypted dump of the Supabase database every night and keeps
+#  it as a GitHub artifact — somewhere other than Supabase, so a problem
+#  with the Supabase project cannot take the backups with it.
+#
+#  Set up once, in Settings → Secrets and variables → Actions:
+#
+#    SUPABASE_DB_URL     Supabase → Connect → Session pooler → URI, with
+#                        [YOUR-PASSWORD] swapped for the real database
+#                        password. It must be the SESSION pooler (port
+#                        5432) — the transaction pooler on 6543 cannot
+#                        take a dump, and the direct connection is
+#                        IPv6-only, which GitHub's runners are not.
+#
+#    BACKUP_PASSPHRASE   A long random passphrase. Keep a copy somewhere
+#                        that is neither this repo nor Supabase: without
+#                        it every backup is unreadable, including by you.
+#
+#  See BACKUP.md for what is and isn't covered, and how to restore.
+
+name: Database backup
+
+on:
+  schedule:
+    # 02:17 UTC — off the hour, so it isn't queued behind everyone else's.
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      label:
+        description: "What this snapshot is for, e.g. before migration 17"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+env:
+  # Must be at least the Postgres version Supabase is running.
+  # Check it at Supabase → Settings → Infrastructure, and bump this when
+  # they upgrade — an older pg_dump refuses to dump a newer server.
+  PG_IMAGE: postgres:17-alpine
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Name this backup
+        id: meta
+        env:
+          LABEL: ${{ inputs.label }}
+        run: |
+          set -euo pipefail
+          stamp=$(date -u +%Y-%m-%dT%H%M)
+          label=$(printf '%s' "${LABEL:-}" | tr -cs 'A-Za-z0-9' '-' | sed 's/^-*//; s/-*$//')
+          echo "name=renla-db-$stamp-${label:-scheduled}" >> "$GITHUB_OUTPUT"
+          # Keep the first of the month for a quarter, everything else
+          # for five weeks — long enough to notice damage done quietly.
+          if [ "$(date -u +%d)" = "01" ]; then
+            echo "retention=90" >> "$GITHUB_OUTPUT"
+          else
+            echo "retention=35" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dump the database
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL is not set — nothing to back up."
+            exit 1
+          fi
+          # The URL is passed through the environment, never on a command
+          # line, so it stays out of logs and process listings.
+          docker run --rm -e DB_URL "$PG_IMAGE" sh -c '
+            pg_dump "$DB_URL" \
+              --clean --if-exists --quote-all-identifiers \
+              --no-owner --no-privileges \
+              --schema=public --schema=auth --schema=storage
+          ' > renla.sql
+
+      - name: Check it is a usable backup
+        id: check
+        run: |
+          set -euo pipefail
+          bytes=$(wc -c < renla.sql)
+          echo "Dump is $bytes bytes."
+
+          # pg_dump writes this line last and only on success. Its absence
+          # means the dump was cut off part-way — the failure that would
+          # otherwise sit in the artifact list looking like a good backup.
+          if ! grep -q 'PostgreSQL database dump complete' renla.sql; then
+            echo "::error::Dump was cut off before it finished. Not keeping it."
+            exit 1
+          fi
+
+          if [ "$bytes" -lt 50000 ]; then
+            echo "::error::Dump is only $bytes bytes — far too small to be the real database."
+            exit 1
+          fi
+
+          # The tables the business actually lives in. If a dump somehow
+          # succeeds against the wrong database, this is what catches it.
+          missing=""
+          for t in companies profiles attendance leave_requests company_settings wallet_entries billing_requests; do
+            grep -q "CREATE TABLE \"public\".\"$t\"" renla.sql || missing="$missing $t"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Dump is missing tables:$missing"
+            exit 1
+          fi
+
+          if ! grep -q 'COPY "auth"."users"' renla.sql; then
+            echo "::warning::No auth.users block — logins would not come back from this backup."
+          fi
+
+          policies=$(grep -c 'CREATE POLICY' renla.sql || true)
+          funcs=$(grep -c 'CREATE FUNCTION' renla.sql || true)
+          rows=$(grep -c '^COPY ' renla.sql || true)
+          echo "policies=$policies" >> "$GITHUB_OUTPUT"
+          echo "funcs=$funcs" >> "$GITHUB_OUTPUT"
+          echo "tables=$rows" >> "$GITHUB_OUTPUT"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          echo "$policies RLS policies, $funcs functions, $rows tables with data."
+
+      - name: Encrypt it
+        id: encrypt
+        env:
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          NAME: ${{ steps.meta.outputs.name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PASSPHRASE:-}" ]; then
+            echo "::error::BACKUP_PASSPHRASE is not set. Refusing to store customer data unencrypted."
+            exit 1
+          fi
+          gzip -9 renla.sql
+          printf '%s' "$PASSPHRASE" > pass
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+              --passphrase-file pass \
+              --output "$NAME.sql.gz.gpg" renla.sql.gz
+          shred -u pass 2>/dev/null || rm -f pass
+          rm -f renla.sql.gz
+          echo "size=$(du -h "$NAME.sql.gz.gpg" | cut -f1)" >> "$GITHUB_OUTPUT"
+          ls -lh "$NAME.sql.gz.gpg"
+
+      - name: Keep it
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: "*.sql.gz.gpg"
+          retention-days: ${{ steps.meta.outputs.retention }}
+          if-no-files-found: error
+          # Already gzipped and encrypted; compressing again just burns time.
+          compression-level: 0
+
+      - name: Say what was taken
+        if: always()
+        run: |
+          {
+            echo "### ${{ steps.meta.outputs.name }}"
+            echo ""
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "| | |"
+              echo "|---|---|"
+              echo "| Dump | ${{ steps.check.outputs.bytes }} bytes |"
+              echo "| Encrypted | ${{ steps.encrypt.outputs.size }} |"
+              echo "| Tables with data | ${{ steps.check.outputs.tables }} |"
+              echo "| RLS policies | ${{ steps.check.outputs.policies }} |"
+              echo "| Functions | ${{ steps.check.outputs.funcs }} |"
+              echo "| Kept for | ${{ steps.meta.outputs.retention }} days |"
+              echo ""
+              echo "Restoring it: see \`BACKUP.md\`."
+            else
+              echo "**This backup did not complete.** No artifact was kept for today."
+              echo ""
+              echo "Check the failed step above. The usual causes are a rotated"
+              echo "database password, or Supabase moving to a Postgres version"
+              echo "newer than \`$PG_IMAGE\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
