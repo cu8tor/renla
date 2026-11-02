@@ -44,7 +44,7 @@ function CopyRow({ label, value, toast }) {
 export default function BillingPage({ toast }) {
   const [b, setB] = useState(null);
   const [err, setErr] = useState("");
-  const [asking, setAsking] = useState(null);     // term key being requested
+  const [funding, setFunding] = useState(null);   // { term } — null term means a plain top-up
 
   const load = useCallback(async () => {
     try { setB(await myBilling()); }
@@ -130,55 +130,64 @@ export default function BillingPage({ toast }) {
         </Section>
       </Card>
 
-      {/* Pay ahead and save */}
-      {monthly > 0 && (
-        <Card style={{ marginBottom: 18 }}>
-          <Section title="Pay ahead and save">
-            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
-              Paying for several months at once costs less. Tell us which you'd like and we'll confirm the
-              amount before you transfer anything.
-            </div>
+      {/* Fund the wallet. The whole point of this page. */}
+      <Card style={{ marginBottom: 18 }}>
+        <Section title="Fund your wallet">
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
+            Made a transfer? Tell us how much and attach the receipt — we'll confirm it against the bank
+            and your balance updates, usually within a working day.
+          </div>
 
-            {openReq && (
-              <div style={{ fontSize: 13, color: "var(--brand)", fontWeight: 600, marginBottom: 14 }}>
-                Request sent — we'll be in touch shortly.
+          {openReq && (
+            <div style={{ fontSize: 13, color: "var(--brand)", fontWeight: 600, marginBottom: 14, lineHeight: 1.55 }}>
+              {naira(openReq.amount)} awaiting confirmation{openReq.receiptPath ? " — receipt received" : ""}.
+            </div>
+          )}
+
+          <Btn icon={Wallet} disabled={Boolean(openReq)} onClick={() => setFunding({ term: null })}>
+            I've made a transfer
+          </Btn>
+
+          {monthly > 0 && (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "22px 0 10px" }}>
+                Pay ahead and save
               </div>
-            )}
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {(b.terms || []).map((t) => {
-                const full = monthly * t.periodMonths;
-                const saving = full - Number(t.price);
-                const current = b.term === t.key;
-                return (
-                  <div key={t.key} style={{
-                    flex: "1 1 200px", border: `1px solid ${current ? "var(--brand)" : "var(--line)"}`,
-                    borderRadius: 12, padding: 14, background: current ? "var(--brand-soft)" : "var(--card2)",
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</span>
-                      {current && <Badge tone="brand">Current</Badge>}
-                    </div>
-                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 19, fontWeight: 700, marginTop: 6 }}>
-                      {naira(t.price)}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.5 }}>
-                      {t.blurb}{saving > 0 ? ` Saves ${naira(saving)}.` : ""}
-                    </div>
-                    {!current && (
-                      <div style={{ marginTop: 10 }}>
-                        <button className="cp-mini" disabled={Boolean(openReq)} onClick={() => setAsking(t)}>
-                          <ArrowRight size={13} /> Request
-                        </button>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {(b.terms || []).map((t) => {
+                  const full = monthly * t.periodMonths;
+                  const saving = full - Number(t.price);
+                  const current = b.term === t.key;
+                  return (
+                    <div key={t.key} style={{
+                      flex: "1 1 200px", border: `1px solid ${current ? "var(--brand)" : "var(--line)"}`,
+                      borderRadius: 12, padding: 14, background: current ? "var(--brand-soft)" : "var(--card2)",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</span>
+                        {current && <Badge tone="brand">Current</Badge>}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </Section>
-        </Card>
-      )}
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 19, fontWeight: 700, marginTop: 6 }}>
+                        {naira(t.price)}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.5 }}>
+                        {t.blurb}{saving > 0 ? ` Saves ${naira(saving)}.` : ""}
+                      </div>
+                      {t.key !== "monthly" && (
+                        <div style={{ marginTop: 10 }}>
+                          <button className="cp-mini" disabled={Boolean(openReq)} onClick={() => setFunding({ term: t })}>
+                            <ArrowRight size={13} /> Pay this
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </Section>
+      </Card>
 
       <Card>
         <Section title="Statement">
@@ -204,43 +213,87 @@ export default function BillingPage({ toast }) {
         </Section>
       </Card>
 
-      {asking && (
-        <RequestModal term={asking} monthly={monthly} onClose={() => setAsking(null)}
-          onSend={async (note) => {
-            try {
-              await raiseBillingRequest({ kind: "term_change", term: asking.key, amount: asking.price, note });
-              toast("Request sent — we'll confirm the amount with you.");
-              setAsking(null);
-              await load();
-            } catch (e) { toast(e.message, "danger", 9000); }
+      {funding && (
+        <FundModal term={funding.term} monthly={monthly} outstanding={inArrears ? Math.abs(balance) : 0}
+          onClose={() => setFunding(null)}
+          onSend={async ({ amount, note, receipt }) => {
+            await raiseBillingRequest({
+              kind: funding.term ? "term_change" : "topup",
+              term: funding.term?.key ?? null,
+              amount, note, receipt,
+            });
+            toast("Thanks — we'll confirm it against the bank and update your balance.");
+            setFunding(null);
+            await load();
           }} />
       )}
     </div>
   );
 }
 
-function RequestModal({ term, monthly, onClose, onSend }) {
+/* "I've paid" — the amount they sent and, ideally, the receipt.
+
+   The receipt is optional but pushed, because a bank narration alone
+   often isn't enough to tell two transfers apart, and the alternative
+   is an email thread. */
+function FundModal({ term, monthly, outstanding, onClose, onSend }) {
+  const suggested = term ? Number(term.price) : (outstanding || monthly || 0);
+  const [amount, setAmount] = useState(suggested ? String(suggested) : "");
   const [note, setNote] = useState("");
+  const [receipt, setReceipt] = useState(null);
   const [busy, setBusy] = useState(false);
-  const saving = monthly * term.periodMonths - Number(term.price);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    const n = Number(String(amount).replace(/[^0-9.]/g, ""));
+    if (!n || n <= 0) { setErr("How much did you transfer?"); return; }
+    setErr(""); setBusy(true);
+    try { await onSend({ amount: n, note: note.trim(), receipt }); }
+    catch (e) { setErr(e.message || "Couldn't send that."); setBusy(false); }
+  };
 
   return (
-    <Modal title={`Switch to ${term.name.toLowerCase()} billing`} onClose={onClose}
-      onSubmit={async () => { setBusy(true); await onSend(note.trim()); setBusy(false); }}
-      submitDisabled={busy} submitLabel={busy ? "Sending…" : "Send request"}>
-      <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
-        {term.name} billing for your company is <b>{naira(term.price)}</b>
-        {saving > 0 && <> — {naira(saving)} less than paying monthly over the same {term.periodMonths} months</>}.
+    <Modal title={term ? `Pay ${term.name.toLowerCase()}` : "Confirm your transfer"}
+      onClose={onClose} onSubmit={submit} submitDisabled={busy}
+      submitLabel={busy ? "Sending…" : "Send to Renla"}>
+
+      {term && (
+        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
+          {term.name} billing for your company is <b>{naira(term.price)}</b>. {term.blurb}
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Field label="Amount transferred (₦)" hint={term ? "Change it if you sent a different amount" : undefined}>
+          <input className="cp-input" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </Field>
+
+        <Field label="Receipt" hint="A screenshot or the bank's PDF. Optional, but it's what lets us match your transfer quickly.">
+          <input className="cp-input" type="file" accept="image/*,.pdf"
+            onChange={(e) => { setReceipt(e.target.files?.[0] || null); setErr(""); }} />
+        </Field>
+        {receipt && (
+          <div style={{ fontSize: 12.5, color: "var(--brand)", fontWeight: 600, marginTop: -6 }}>
+            {receipt.name} attached
+          </div>
+        )}
+
+        <Field label="Anything we should know?" hint="Optional">
+          <input className="cp-input" value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. transferred from the company account on Monday" />
+        </Field>
+
+        {err && (
+          <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "flex-start", lineHeight: 1.5 }}>
+            <AlertCircle size={14} style={{ marginTop: 1, flex: "0 0 auto" }} /> <span>{err}</span>
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
+          This doesn't take any money — it tells Renla to look for your transfer. Nothing changes on your
+          balance until it's confirmed against the bank.
+        </div>
       </div>
-      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 16, lineHeight: 1.55 }}>
-        Nothing is charged by sending this. We'll confirm the amount — it's based on your headcount today,
-        so it can change if you add people before paying — and then you transfer it using the details on
-        the billing page.
-      </div>
-      <Field label="Anything we should know?" hint="Optional">
-        <input className="cp-input" value={note} onChange={(e) => setNote(e.target.value)}
-          placeholder="e.g. we're adding 4 people next month" />
-      </Field>
     </Modal>
   );
 }

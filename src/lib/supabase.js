@@ -294,22 +294,70 @@ export async function myBilling() {
   return data;
 }
 
-export async function raiseBillingRequest({ kind, plan, term, amount, note }) {
+export const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
+
+/* A customer saying "I've paid, here's the proof".
+
+   The receipt is uploaded first and the request written second, on
+   purpose: a request with a dead receipt path is worse than one with
+   none, because the admin trusts the link and finds nothing. If the
+   upload fails this throws and no request is created, so the person
+   sees the real problem and can try again.
+
+   Notifying is deliberately best-effort and last. The claim is already
+   saved and already in Renla's queue — a mail outage shouldn't lose a
+   payment claim or tell the customer their payment didn't register. */
+export async function raiseBillingRequest({ kind, plan, term, amount, note, receipt }) {
   const { data: { user } } = await supabase.auth.getUser();
   const { data: prof } = await supabase.from("profiles").select("company_id").eq("id", user?.id).maybeSingle();
   if (!prof?.company_id) throw new Error("No company.");
 
-  const { error } = await supabase.from("billing_requests").insert({
+  let receiptPath = null;
+  if (receipt) {
+    const small = await shrinkImageFile(receipt, 1800);
+    if (small.size > RECEIPT_MAX_BYTES) {
+      throw new Error(`That receipt is ${prettySize(small.size)} — the limit is ${prettySize(RECEIPT_MAX_BYTES)}.`);
+    }
+    const safe = small.name.replace(/[^\w.\-]/g, "_");
+    receiptPath = `${prof.company_id}/${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from("payment-receipts").upload(receiptPath, small);
+    if (upErr) throw new Error(`Couldn't upload that receipt: ${upErr.message}`);
+  }
+
+  const { data: row, error } = await supabase.from("billing_requests").insert({
     company_id: prof.company_id,
     kind,
     requested_plan: plan ?? null,
     requested_term: term ?? null,
     amount: amount ?? null,
     note: note || "",
+    receipt_path: receiptPath,
     status: "open",
     created_by: user.id,
-  });
+  }).select("id").single();
   if (error) throw new Error(friendly(error.message));
+
+  try { await notifyPayment(row.id); } catch { /* claim is saved; mail can fail */ }
+  return row.id;
+}
+
+async function notifyPayment(requestId) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+  await fetch(`${url}/functions/v1/notify-payment`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ requestId }),
+  });
+}
+
+/* A receipt someone attached, as a link that works for an hour. */
+export async function receiptUrl(path) {
+  return signedUrl("payment-receipts", path, 3600);
 }
 
 export async function adminOpenRequests() {

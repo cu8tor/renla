@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle, Check, X } from "lucide-react";
+import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle, Check, X, FileText } from "lucide-react";
 import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans,
-  adminOpenRequests, adminResolveRequest, adminSetBankDetails, platformBankDetails } from "../lib/supabase.js";
+  adminOpenRequests, adminResolveRequest, adminSetBankDetails, platformBankDetails, receiptUrl } from "../lib/supabase.js";
 import { naira } from "../lib/format.js";
 import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal, Stat } from "../components/ui.jsx";
 
@@ -265,9 +265,17 @@ export default function AdminPage() {
                     </div>
                     <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
                       {fmtDate(r.createdAt)}{r.note ? ` · ${r.note}` : ""}
+                      {!r.receiptPath && <span style={{ color: "var(--warn)" }}> · no receipt</span>}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
+                    {r.receiptPath && (
+                      <button className="cp-mini" title="View the receipt they attached"
+                        onClick={async () => {
+                          const u = await receiptUrl(r.receiptPath);
+                          if (u) window.open(u, "_blank"); else setErr("Couldn't open that receipt.");
+                        }}><FileText size={13} /> Receipt</button>
+                    )}
                     <button className="cp-mini" onClick={() => openDetail({ id: r.companyId, name: r.companyName })}>Open</button>
                     <button className="cp-mini cp-mini-ok" title="Mark as handled"
                       onClick={async () => { try { await adminResolveRequest(r.id, "done"); await load(); } catch (e) { setErr(e.message); } }}>
