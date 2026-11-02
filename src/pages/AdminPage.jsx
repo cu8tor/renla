@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle } from "lucide-react";
-import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans } from "../lib/supabase.js";
+import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle, Check, X } from "lucide-react";
+import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans,
+  adminOpenRequests, adminResolveRequest, adminSetBankDetails, platformBankDetails } from "../lib/supabase.js";
 import { naira } from "../lib/format.js";
 import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal, Stat } from "../components/ui.jsx";
 
@@ -37,13 +38,19 @@ export default function AdminPage() {
   const [openCo, setOpenCo] = useState(null);     // { id, name } being drilled into
   const [detail, setDetail] = useState(null);
   const [payFor, setPayFor] = useState(null);     // company row we're recording against
+  const [requests, setRequests] = useState([]);
+  const [bank, setBank] = useState(null);
 
   const load = useCallback(async () => {
     setBusy(true); setErr("");
     try {
-      const [list, p] = await Promise.all([adminCompanies(), listPlans()]);
+      const [list, p, reqs, bankRow] = await Promise.all([
+        adminCompanies(), listPlans(), adminOpenRequests(), platformBankDetails(),
+      ]);
       setRows(list);
       setPlans(p);
+      setRequests(reqs);
+      setBank(bankRow);
     } catch (e) {
       setErr(e.message || "Couldn't load that.");
       setRows([]);
@@ -240,6 +247,46 @@ export default function AdminPage() {
         )}
       </Card>
 
+      {requests.length > 0 && (
+        <Card style={{ marginTop: 18, borderColor: "var(--accent)" }}>
+          <Section title={`Requests · ${requests.length}`}>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
+              Companies asking to change plan or pay ahead. Nothing has been charged — confirm the amount
+              with them, record the payment when it lands, then mark this done.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {requests.map((r) => (
+                <div key={r.id} className="cp-leaverow">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 600, fontSize: 13.5 }}>{r.companyName}</span>
+                      <Badge tone="accent">{r.term || r.plan || r.kind}</Badge>
+                      {r.amount != null && <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{naira(r.amount)}</span>}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
+                      {fmtDate(r.createdAt)}{r.note ? ` · ${r.note}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
+                    <button className="cp-mini" onClick={() => openDetail({ id: r.companyId, name: r.companyName })}>Open</button>
+                    <button className="cp-mini cp-mini-ok" title="Mark as handled"
+                      onClick={async () => { try { await adminResolveRequest(r.id, "done"); await load(); } catch (e) { setErr(e.message); } }}>
+                      <Check size={13} />
+                    </button>
+                    <button className="cp-mini cp-mini-no" title="Decline"
+                      onClick={async () => { try { await adminResolveRequest(r.id, "declined"); await load(); } catch (e) { setErr(e.message); } }}>
+                      <X size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        </Card>
+      )}
+
+      {bank && <BankCard bank={bank} onSaved={load} onError={setErr} />}
+
       <Card style={{ marginTop: 18 }}>
         <Section title="Monthly billing">
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
@@ -266,7 +313,47 @@ export default function AdminPage() {
   );
 }
 
-/* Recording a transfer you've seen land in the bank. Kept to the two
+/* Where customers are told to send money. Kept in the database rather
+   than the repo — an account number has no business in git history, and
+   this way changing bank doesn't need a deploy. */
+function BankCard({ bank, onSaved, onError }) {
+  const [f, setF] = useState({
+    bank: bank.bank_name || "", accountName: bank.account_name || "",
+    accountNumber: bank.account_number || "", note: bank.payment_note || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const incomplete = !f.bank.trim() || !f.accountName.trim() || !f.accountNumber.trim();
+
+  return (
+    <Card style={{ marginTop: 18, borderColor: incomplete ? "var(--warn)" : undefined }}>
+      <Section title="Your bank details">
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
+          {incomplete
+            ? "Customers can't pay you until these are filled in — their billing page shows a placeholder instead of an account number."
+            : "Shown to every customer on their billing page, with a reference for them to quote."}
+        </div>
+        <div className="cp-form-grid">
+          <Field label="Bank"><input className="cp-input" value={f.bank} onChange={(e) => { setF({ ...f, bank: e.target.value }); setSaved(false); }} placeholder="e.g. GTBank" /></Field>
+          <Field label="Account name"><input className="cp-input" value={f.accountName} onChange={(e) => { setF({ ...f, accountName: e.target.value }); setSaved(false); }} /></Field>
+          <Field label="Account number"><input className="cp-input" value={f.accountNumber} onChange={(e) => { setF({ ...f, accountNumber: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) }); setSaved(false); }} /></Field>
+          <Field label="Note" hint="Optional — shown under the details"><input className="cp-input" value={f.note} onChange={(e) => { setF({ ...f, note: e.target.value }); setSaved(false); }} /></Field>
+        </div>
+        <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}>
+          <Btn icon={busy ? Timer : Check} disabled={busy} onClick={async () => {
+            setBusy(true);
+            try { await adminSetBankDetails(f); setSaved(true); await onSaved(); }
+            catch (e) { onError(e.message); }
+            setBusy(false);
+          }}>{busy ? "Saving…" : "Save bank details"}</Btn>
+          {saved && <span style={{ fontSize: 12.5, color: "var(--ok)", fontWeight: 600 }}>Saved</span>}
+        </div>
+      </Section>
+    </Card>
+  );
+}
+
+/* Recording a transfer you\'ve seen land in the bank. Kept to the two
    things that matter — how much, and what it was — so it can't become a
    form people skip. */
 function PaymentModal({ co, onClose, onDone, onError }) {

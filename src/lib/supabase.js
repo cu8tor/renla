@@ -282,6 +282,69 @@ export async function adminPostCharges(period) {
   return Number(data) || 0;
 }
 
+
+/* ------------------------------------------------- customer billing */
+
+/* Everything the billing page needs, in one call. The function checks
+   the caller is HR of the company it returns — an ordinary employee has
+   no business reading what their employer pays. */
+export async function myBilling() {
+  const { data, error } = await supabase.rpc("my_billing");
+  if (error) throw new Error(friendly(error.message));
+  return data;
+}
+
+export async function raiseBillingRequest({ kind, plan, term, amount, note }) {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: prof } = await supabase.from("profiles").select("company_id").eq("id", user?.id).maybeSingle();
+  if (!prof?.company_id) throw new Error("No company.");
+
+  const { error } = await supabase.from("billing_requests").insert({
+    company_id: prof.company_id,
+    kind,
+    requested_plan: plan ?? null,
+    requested_term: term ?? null,
+    amount: amount ?? null,
+    note: note || "",
+    status: "open",
+    created_by: user.id,
+  });
+  if (error) throw new Error(friendly(error.message));
+}
+
+export async function adminOpenRequests() {
+  const { data, error } = await supabase.rpc("admin_open_requests");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function adminResolveRequest(id, status) {
+  const { error } = await supabase.rpc("admin_resolve_request", { p_id: id, p_status: status });
+  if (error) throw new Error(error.message);
+}
+
+export async function adminApplyTermPayment(companyId, term, paid, reference) {
+  const { data, error } = await supabase.rpc("admin_apply_term_payment", {
+    p_company: companyId, p_term: term, p_paid: paid, p_reference: reference || "",
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function adminSetBankDetails({ bank, accountName, accountNumber, note }) {
+  const { error } = await supabase.rpc("admin_set_bank_details", {
+    p_bank: bank || "", p_account_name: accountName || "",
+    p_account_number: accountNumber || "", p_note: note || "",
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function platformBankDetails() {
+  const { data, error } = await supabase.from("platform_settings").select("*").maybeSingle();
+  if (error) throw new Error(error.message);
+  return data || {};
+}
+
 /* --------------------------------------------------- load the workspace */
 
 const num = (v) => Number(v) || 0;

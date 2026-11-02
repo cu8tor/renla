@@ -62,6 +62,7 @@ import { ProfilePage } from "./pages/ProfilePage.jsx";
 import JoinPage from "./pages/JoinPage.jsx";
 import WelcomePage from "./pages/WelcomePage.jsx";
 import AdminApp from "./pages/AdminApp.jsx";
+import BillingPage from "./pages/BillingPage.jsx";
 import { LeaderboardPage } from "./pages/LeaderboardPage.jsx";
 /* ================================================================== */
 /*  APP                                                                */
@@ -1011,6 +1012,7 @@ function AppShell() {
     { key: "documents", label: "Documents", icon: FolderClosed },
     { key: "payroll", label: "Payroll", icon: Wallet },
   ];
+  if (isHR) NAV.push({ key: "billing", label: "Billing", icon: CreditCard });
   if (isHR) NAV.push({ key: "settings", label: "Settings", icon: SettingsIcon });
   const SOON = [
     { key: "performance", label: "Performance", icon: BarChart3, phase: "Coming soon" },
@@ -1159,6 +1161,9 @@ function AppShell() {
                 } />
                 <Route path="/profile" element={
                   <ProfilePage {...{ db, myEmp, saveMyProfile, uploadMyAvatar, uploadMyDocument, deleteMyDocument }} />
+                } />
+                <Route path="/billing" element={
+                  isHR ? <BillingPage toast={toast} /> : <Navigate to="/dashboard" replace />
                 } />
                 <Route path="/welcome" element={
                   <WelcomePage {...{ db, myEmp, saveMyProfile, go }} />
