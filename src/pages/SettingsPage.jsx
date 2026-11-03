@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Clock3, Plus, Check, X, Building2, MapPin, Download, PartyPopper, BadgeCheck, Trash2, Database, Info, Copy, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, Trophy, CalendarDays } from "lucide-react";
-import { supabase, setCompanyIndustry } from "../lib/supabase.js";
+import { supabase, setCompanyIndustry, setCompanyContact } from "../lib/supabase.js";
 import { INDUSTRIES } from "../lib/industries.js";
 import { DEFAULT_PAYROLL } from "../features/payroll/payrollEngine.js";
 import { durLabel, crossesMidnight, minutesBetween } from "../features/attendance/attendanceLogic.js";
@@ -28,6 +28,8 @@ const ONBOARDING_FIELDS = [
 function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings, saveLeavePolicy }) {
   const [name, setName] = useState(db.company.name);
   const [industry, setIndustry] = useState(db.company.industry || "");
+  const [phone, setPhone] = useState(db.company.contactPhone || "");
+  const [bizEmail, setBizEmail] = useState(db.company.contactEmail || "");
   const [work, setWork] = useState({ ...DEFAULT_WORK, ...(db.work || {}) });
   const [onboarding, setOnboarding] = useState({ ...DEFAULT_ONBOARDING, ...(db.onboarding || {}) });
   const [leavePolicy, setLeavePolicy] = useState({ ...DEFAULT_LEAVE_POLICY, ...(db.leavePolicy || {}) });
@@ -58,6 +60,25 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
             {/* Saved on change through its own RPC, not through the sync
                 layer — that only writes name and address, so routing it
                 there would look like it saved and quietly drop it. */}
+            <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 14 }}>
+              <div style={{ flex: 1, minWidth: 190 }}>
+                <Field label="Business phone" hint="How Renla reaches you about your account">
+                  <input className="cp-input" type="tel" inputMode="tel" value={phone}
+                    onChange={(e) => setPhone(e.target.value)} placeholder="0803 000 0000" />
+                </Field>
+              </div>
+              <div style={{ flex: 1, minWidth: 190 }}>
+                <Field label="Business email" hint="Optional — where billing notices go">
+                  <input className="cp-input" type="email" inputMode="email" value={bizEmail}
+                    onChange={(e) => setBizEmail(e.target.value)} placeholder="hello@yourcompany.com" />
+                </Field>
+              </div>
+              <Btn onClick={async () => {
+                try { await setCompanyContact({ phone: phone.trim(), email: bizEmail.trim() }); toast("Contact details saved"); }
+                catch (x) { toast(x.message, "danger", 7000); }
+              }}>Save</Btn>
+            </div>
+
             <div style={{ marginTop: 14, maxWidth: 360 }}>
               <Field label="Line of work" hint="Shifts, overtime and leave work differently by trade. This is what Renla tunes for you.">
                 <select className="cp-input" value={industry}

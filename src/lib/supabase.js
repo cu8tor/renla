@@ -66,7 +66,7 @@ export async function updatePassword(newPassword) {
   if (error) throw new Error(friendly(error.message));
 }
 
-export async function createCompany(companyName, fullName, jobTitle, industry) {
+export async function createCompany(companyName, fullName, jobTitle, industry, contact) {
   const { error } = await supabase.rpc("create_company_and_admin", {
     p_company_name: companyName,
     p_full_name: fullName,
@@ -100,6 +100,24 @@ export async function createCompany(companyName, fullName, jobTitle, industry) {
     try { await supabase.rpc("set_company_industry", { p_industry: industry }); }
     catch { /* visible as "—" in the admin list; HR can set it in Settings */ }
   }
+
+  // How to reach them. Same best-effort reasoning, and the admin list
+  // shows a blank so a failure is visible rather than silent.
+  if (contact?.phone || contact?.email) {
+    try {
+      await supabase.rpc("set_company_contact", {
+        p_phone: contact.phone || "", p_email: contact.email || "",
+      });
+    } catch { /* HR can set it in Settings */ }
+  }
+}
+
+/* HR correcting it later, from Settings. */
+export async function setCompanyContact({ phone, email }) {
+  const { error } = await supabase.rpc("set_company_contact", {
+    p_phone: phone || "", p_email: email || "",
+  });
+  if (error) throw new Error(friendly(error.message));
 }
 
 /* HR changing it later, from Settings. */
@@ -517,6 +535,8 @@ export async function loadWorkspace(profile) {
       id: company.data.id, name: company.data.name,
       address: company.data.address || "", country: company.data.country || "Nigeria",
       industry: company.data.industry || "",
+      contactPhone: company.data.contact_phone || "",
+      contactEmail: company.data.contact_email || "",
     },
     work: settings.data.work,
     payroll: settings.data.payroll,

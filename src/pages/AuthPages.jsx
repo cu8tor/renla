@@ -234,7 +234,7 @@ function ResetPasswordScreen({ theme, dark, setDark, onDone }) {
 }
 
 function NewCompany({ theme, dark, setDark, profile }) {
-  const [f, setF] = useState({ company: "", name: "", title: "", industry: "" });
+  const [f, setF] = useState({ company: "", name: "", title: "", industry: "", phone: "", bizEmail: "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [joinId, setJoinId] = useState("");
@@ -281,9 +281,16 @@ function NewCompany({ theme, dark, setDark, profile }) {
     // dropdown nobody fills, and this is the one answer that tells us
     // what to build next.
     if (!f.industry) { setErr("Pick the line of work that fits best — it decides what we set up for you."); return; }
+    // Required, because it is the only way to reach the business when a
+    // transfer lands that we can't match to anyone. The email isn't:
+    // they have already given one to sign in with.
+    if (!f.phone.trim()) { setErr("Add a phone number we can reach the business on."); return; }
     setErr(""); setBusy(true);
-    try { await createCompany(f.company.trim(), f.name.trim(), f.title.trim(), f.industry); window.location.reload(); }
-    catch (e) { setErr(e.message); setBusy(false); }
+    try {
+      await createCompany(f.company.trim(), f.name.trim(), f.title.trim(), f.industry,
+        { phone: f.phone.trim(), email: f.bizEmail.trim() });
+      window.location.reload();
+    } catch (e) { setErr(e.message); setBusy(false); }
   };
 
   const join = async () => {
@@ -341,6 +348,14 @@ function NewCompany({ theme, dark, setDark, profile }) {
               <option value="">Choose one…</option>
               {INDUSTRIES.map((i) => <option key={i.key} value={i.key}>{i.label}</option>)}
             </select>
+          </Field>
+          <Field label="Business phone" hint="How we reach you about your account — a WhatsApp number is fine.">
+            <input className="cp-input" type="tel" inputMode="tel" value={f.phone}
+              onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="0803 000 0000" />
+          </Field>
+          <Field label="Business email" hint="Optional. Where billing and notices should go, if it isn't the address you signed in with.">
+            <input className="cp-input" type="email" inputMode="email" autoComplete="off" value={f.bizEmail}
+              onChange={(e) => setF({ ...f, bizEmail: e.target.value })} placeholder="hello@yourcompany.com" />
           </Field>
           {err && <div style={{ fontSize: 13, color: "var(--danger)" }}>{err}</div>}
           <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={create}>{busy ? "Setting up…" : "Create company"}</Btn></div>

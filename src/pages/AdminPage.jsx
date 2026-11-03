@@ -119,6 +119,29 @@ export default function AdminPage() {
                 co.created_at ? `joined ${fmtDate(co.created_at)}` : null].filter(Boolean).join(" · ")}
           action={<Btn icon={Plus} onClick={() => setPayFor(co)}>Record payment</Btn>} />
 
+        {detail?.company && (detail.company.contact_phone || detail.company.contact_email) && (
+          <Card style={{ marginBottom: 18 }}>
+            <Section title="Getting hold of them">
+              <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+                {detail.company.contact_phone && (
+                  <div>
+                    <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 2 }}>Phone</div>
+                    <a className="cp-link" href={`tel:${String(detail.company.contact_phone).replace(/[^+0-9]/g, "")}`}
+                      style={{ fontWeight: 600 }}>{detail.company.contact_phone}</a>
+                  </div>
+                )}
+                {detail.company.contact_email && (
+                  <div>
+                    <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 2 }}>Email</div>
+                    <a className="cp-link" href={`mailto:${detail.company.contact_email}`}
+                      style={{ fontWeight: 600 }}>{detail.company.contact_email}</a>
+                  </div>
+                )}
+              </div>
+            </Section>
+          </Card>
+        )}
+
         {!detail ? <Card><Empty text="Loading…" /></Card> : (
           <>
             <div className="cp-tiles" style={{ marginBottom: 18 }}>
@@ -239,7 +262,7 @@ export default function AdminPage() {
           <div className="cp-table-wrap">
             <table className="cp-table">
               <thead><tr>
-                <th>Company</th><th>Line of work</th><th>Plan</th><th>Staff</th>
+                <th>Company</th><th>Line of work</th><th>Contact</th><th>Plan</th><th>Staff</th>
                 <th className="cp-num">Per month</th>
                 <th className="cp-num">Balance</th>
                 <th>Standing</th><th>Joined</th><th>Last paid</th><th></th>
@@ -253,6 +276,11 @@ export default function AdminPage() {
                       <td style={{ fontWeight: 600, fontSize: 13.5 }}>{r.name}</td>
                       <td style={{ fontSize: 12.5, color: r.industry ? "var(--ink)" : "var(--muted)" }}>
                         {r.industry ? industryLabel(r.industry) : "—"}
+                      </td>
+                      <td onClick={(ev) => ev.stopPropagation()} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>
+                        {r.contact_phone
+                          ? <a href={`tel:${String(r.contact_phone).replace(/[^+0-9]/g, "")}`} className="cp-link">{r.contact_phone}</a>
+                          : <span style={{ color: "var(--muted)" }}>—</span>}
                       </td>
                       <td><Badge tone={r.plan === "starter" ? "muted" : "brand"}>{r.plan_name || r.plan}</Badge></td>
                       <td className="cp-num">{r.seats}</td>
