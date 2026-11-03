@@ -1,5 +1,21 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "//": "Vite puts a content hash in every asset filename, so a given URL's contents can never change. Cache it for a year.",
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "//": "Everything else is index.html, which names those hashes. If it is cached, a deploy leaves people on the old bundle until they think to hard-reload — which is exactly the 'still failing' we kept chasing. Revalidate it every time; it is 400 bytes.",
+      "source": "/((?!assets/).*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    }
   ]
 }
