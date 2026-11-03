@@ -382,6 +382,33 @@ export async function raiseBillingRequest({ kind, plan, term, amount, note, rece
   return row.id;
 }
 
+/* Starts a card payment and returns the Paystack checkout URL.
+
+   Nothing is credited here. The browser is told where to go; the wallet
+   moves only when Paystack's signed webhook says the money arrived, so a
+   customer who closes the tab mid-payment still gets credited and one who
+   fakes a success callback gets nothing. */
+export async function startCardPayment(amount) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Please sign in again.");
+
+  const res = await fetch(`${url}/functions/v1/paystack-init`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ amount }),
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.url) {
+    throw new Error(body?.error || "Couldn't start that card payment.");
+  }
+  return body;   // { url, reference, amount }
+}
+
 async function notifyPayment(requestId) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return;

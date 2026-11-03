@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wallet, Copy, Check, AlertCircle, Landmark, ArrowRight, TrendingDown } from "lucide-react";
-import { myBilling, raiseBillingRequest } from "../lib/supabase.js";
+import { Wallet, Copy, Check, AlertCircle, Landmark, ArrowRight, TrendingDown, CreditCard, Timer } from "lucide-react";
+import { myBilling, raiseBillingRequest, startCardPayment } from "../lib/supabase.js";
 import { billingStatus } from "../features/billing/status.js";
 import Statement from "../components/Statement.jsx";
 import { naira, copyText } from "../lib/format.js";
@@ -47,13 +47,77 @@ export default function BillingPage({ toast }) {
   const [b, setB] = useState(null);
   const [err, setErr] = useState("");
   const [funding, setFunding] = useState(null);   // { term } — null term means a plain top-up
+  const [carding, setCarding] = useState(false); // card-payment sheet open
+
+  // Set while we're waiting for Paystack's webhook to land after a
+  // redirect back from checkout.
+  const [settling, setSettling] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("ref") || ""; }
+    catch { return ""; }
+  });
 
   const load = useCallback(async () => {
-    try { setB(await myBilling()); }
-    catch (e) { setErr(e.message || "Couldn't load billing."); }
+    try {
+      const next = await myBilling();
+      setB(next);
+      return next;
+    } catch (e) { setErr(e.message || "Couldn't load billing."); return null; }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  /* Coming back from Paystack, the webhook has usually landed already —
+     but "usually" isn't good enough when the alternative is a customer
+     who just paid being shown their old balance and concluding it didn't
+     work. So we wait for the ledger to catch up rather than guessing.
+
+     The payment is safe either way: it settles from Paystack's signed
+     webhook whether or not this tab is open. All this does is avoid
+     telling someone nothing happened when something did. */
+  useEffect(() => {
+    if (!settling) return;
+    let alive = true;
+    let tries = 0;
+
+    const clearRef = () => {
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.delete("ref");
+        window.history.replaceState({}, "", u.toString());
+      } catch { /* history blocked; harmless */ }
+    };
+
+    const tick = async () => {
+      if (!alive) return;
+      tries += 1;
+      const next = await load();
+      const hit = (next?.cardAttempts || []).find((a) => a.reference === settling);
+
+      if (hit?.status === "paid") {
+        if (!alive) return;
+        setSettling(""); clearRef();
+        toast(`Payment received — ${naira(hit.amount)} is in your wallet.`);
+        return;
+      }
+      if (hit?.status === "failed") {
+        if (!alive) return;
+        setSettling(""); clearRef();
+        toast("That payment didn't go through. Nothing was charged.", "warn", 8000);
+        return;
+      }
+      // ~30 seconds, then stop pestering the server and say so honestly.
+      if (tries >= 10) {
+        if (!alive) return;
+        setSettling(""); clearRef();
+        toast("Still confirming with Paystack. Refresh in a moment — nothing is lost.", "warn", 9000);
+        return;
+      }
+      setTimeout(tick, 3000);
+    };
+
+    const t = setTimeout(tick, 1200);
+    return () => { alive = false; clearTimeout(t); };
+  }, [settling, load, toast]);
 
   if (err) {
     return (
@@ -80,6 +144,18 @@ export default function BillingPage({ toast }) {
   return (
     <div className="cp-fade">
       <PageHead title="Billing" sub={`${b.planName || b.plan} · ${b.seats} ${b.seats === 1 ? "person" : "people"}`} />
+
+      {settling && (
+        <Card style={{ marginBottom: 18, borderColor: "var(--brand)" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <Timer size={17} style={{ color: "var(--brand)", flex: "0 0 auto" }} />
+            <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+              <b>Confirming your payment with Paystack.</b> This usually takes a few seconds — you can
+              leave this page, your wallet will be credited either way.
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Where you stand and where to send it, on one row — the two
           things somebody opens this page for. They stack below 1080px,
@@ -129,9 +205,17 @@ export default function BillingPage({ toast }) {
             </div>
           )}
 
-          <Btn icon={Wallet} disabled={Boolean(openReq)} onClick={() => setFunding({ term: null })}>
-            I've made a transfer
-          </Btn>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Btn icon={CreditCard} onClick={() => setCarding(true)}>Pay by card</Btn>
+            <Btn icon={Wallet} variant="ghost" disabled={Boolean(openReq)} onClick={() => setFunding({ term: null })}>
+              I've made a transfer
+            </Btn>
+          </div>
+
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10, lineHeight: 1.55 }}>
+            Card, transfer or USSD through Paystack credits your wallet in seconds. A bank transfer
+            straight to the account above is confirmed by hand, so it takes until the next working day.
+          </div>
 
           {monthly > 0 && (
             <>
@@ -183,6 +267,11 @@ export default function BillingPage({ toast }) {
           <Statement entries={b.entries} />
         </Section>
       </Card>
+
+      {carding && (
+        <CardModal monthly={monthly} outstanding={balance < 0 ? Math.abs(balance) : 0}
+          onClose={() => setCarding(false)} />
+      )}
 
       {funding && (
         <FundModal term={funding.term} monthly={monthly} outstanding={inArrears ? Math.abs(balance) : 0}
@@ -281,6 +370,66 @@ function Fact({ label, value }) {
       <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
     </div>
+  );
+}
+
+/* Paying by card.
+
+   Deliberately thin: pick an amount, go to Paystack. Nothing is
+   confirmed here, because nothing that happens in this browser is
+   evidence that money moved — a signed webhook from Paystack is, and
+   that arrives whether or not this tab is still open. */
+function CardModal({ monthly, outstanding, onClose }) {
+  const suggested = outstanding || monthly || 0;
+  const [amount, setAmount] = useState(suggested ? String(suggested) : "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const go = async () => {
+    const n = Number(String(amount).replace(/[^0-9.]/g, ""));
+    if (!n || n <= 0) { setErr("How much do you want to pay?"); return; }
+    if (n < 100) { setErr("The smallest card payment is ₦100."); return; }
+    setErr(""); setBusy(true);
+    try {
+      const { url } = await startCardPayment(n);
+      // Replace rather than push: the back button should return to
+      // billing, not to a stale checkout that has already been used.
+      window.location.replace(url);
+    } catch (e) { setErr(e.message || "Couldn't start that payment."); setBusy(false); }
+  };
+
+  return (
+    <Modal title="Pay by card" onClose={onClose} onSubmit={go} submitDisabled={busy}
+      submitLabel={busy ? "Opening Paystack…" : "Continue to Paystack"}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Field label="Amount (₦)"
+          hint={outstanding ? `${naira(outstanding)} would clear what you owe` : monthly ? `${naira(monthly)} covers one month` : undefined}>
+          <input className="cp-input" autoFocus inputMode="decimal" value={amount}
+            onChange={(e) => setAmount(e.target.value)} placeholder="5000" />
+        </Field>
+
+        {monthly > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[1, 3, 6, 12].map((m) => (
+              <button key={m} className="cp-mini" type="button" onClick={() => setAmount(String(monthly * m))}>
+                {m} {m === 1 ? "month" : "months"} · {naira(monthly * m)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {err && (
+          <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "flex-start", lineHeight: 1.5 }}>
+            <AlertCircle size={14} style={{ marginTop: 1, flex: "0 0 auto" }} /> <span>{err}</span>
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
+          You'll finish on Paystack, where you can pay by card, transfer or USSD. Your wallet is
+          credited as soon as Paystack confirms it — you don't need to come back here or send a receipt.
+        </div>
+      </div>
+    </Modal>
   );
 }
 
