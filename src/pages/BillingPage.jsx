@@ -81,10 +81,14 @@ export default function BillingPage({ toast }) {
     <div className="cp-fade">
       <PageHead title="Billing" sub={`${b.planName || b.plan} · ${b.seats} ${b.seats === 1 ? "person" : "people"}`} />
 
-      <StatusCard b={b} monthly={monthly} balance={balance} />
+      {/* Where you stand and where to send it, on one row — the two
+          things somebody opens this page for. They stack below 1080px,
+          which is where most of this gets read. */}
+      <div className="cp-two-col cp-two-col-even" style={{ marginBottom: 18 }}>
+        <StatusCard b={b} monthly={monthly} balance={balance} />
 
-      {/* How to pay — the part that actually matters on this page. */}
-      <Card style={{ marginBottom: 18 }}>
+        {/* How to pay — the part that actually matters on this page. */}
+        <Card>
         <Section title="How to pay">
           {!b.bank?.account_number ? (
             <Empty text="Renla hasn't published bank details yet. Get in touch at hello@renla.app." />
@@ -108,7 +112,8 @@ export default function BillingPage({ toast }) {
             </>
           )}
         </Section>
-      </Card>
+        </Card>
+      </div>
 
       {/* Fund the wallet. The whole point of this page. */}
       <Card style={{ marginBottom: 18 }}>
@@ -236,13 +241,13 @@ export function StatusCard({ b, monthly, balance }) {
       : `The ${b.planName || b.plan} plan has no monthly charge.`;
 
   return (
-    <Card style={{ marginBottom: 18, borderColor: st.state === "behind" ? "var(--danger)" : "var(--line)" }}>
-      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-        <span className="cp-stat-ic" style={{ background: soft, color: fg, flex: "0 0 auto" }}>
+    <Card style={{ height: "100%", borderColor: st.state === "behind" ? "var(--danger)" : "var(--line)" }}>
+      <div style={{ display: "flex", gap: 14, alignItems: "stretch", height: "100%" }}>
+        <span className="cp-stat-ic" style={{ background: soft, color: fg, flex: "0 0 auto", alignSelf: "flex-start" }}>
           <Icon size={17} />
         </span>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.01em" }}>{st.headline}</div>
 
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "8px 0 6px", flexWrap: "wrap" }}>
@@ -254,7 +259,7 @@ export function StatusCard({ b, monthly, balance }) {
 
           <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, maxWidth: 560 }}>{detail}</div>
 
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--line)" }}>
             <Fact label="Plan" value={b.planName || b.plan} />
             <Fact label="Charged" value={monthly > 0 ? `${naira(monthly)} / month` : "Nothing"} />
             <Fact label="Staff counted" value={`${b.seats}${b.seatCap ? ` of ${b.seatCap}` : ""}`} />

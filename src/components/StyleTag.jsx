@@ -56,6 +56,8 @@ input,select,textarea{font-family:inherit}
 
 .cp-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 .cp-two-col{display:grid;grid-template-columns:1.6fr 1fr;gap:18px;align-items:start}
+.cp-two-col-even{grid-template-columns:1fr 1fr;align-items:stretch}
+.cp-two-col-even>*{height:100%}
 .cp-stat-ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .cp-doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
 
