@@ -293,7 +293,7 @@ function PayrollPage({ db, isHR, isManager, myTeam, myEmp, empById, generatePayr
               <Card pad={0}>
                 <div className="cp-table-wrap">
                   <table className="cp-table">
-                    <thead><tr><th>Employee</th><th>Gross</th><th>PAYE</th><th>Pension</th><th>Loan</th><th>Total ded.</th><th>Net pay</th><th></th></tr></thead>
+                    <thead><tr><th>Employee</th><th className="cp-num">Gross</th><th className="cp-num">PAYE</th><th className="cp-num">Pension</th><th className="cp-num">Loan</th><th className="cp-num">Total ded.</th><th className="cp-num">Net pay</th><th></th></tr></thead>
                     <tbody>
                       {run.lines.map((ln) => {
                         const e = empById(ln.empId);

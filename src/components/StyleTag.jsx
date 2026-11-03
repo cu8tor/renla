@@ -115,7 +115,7 @@ input,select,textarea{font-family:inherit}
 @media(max-width:640px){.cp-slip-grid{grid-template-columns:1fr}}
 .cp-slip-head{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 .cp-num{font-family:var(--font-mono);font-size:12.5px;white-space:nowrap;text-align:right}
-.cp-table th:not(:first-child):not(:last-child){text-align:right}
+.cp-table th.cp-num{text-align:right}
 .cp-leaverow{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--card2)}
 .cp-tabs{display:flex;gap:6px;margin-bottom:18px;border-bottom:1px solid var(--line)}
 .cp-tab{background:transparent;border:none;border-bottom:2px solid transparent;padding:9px 14px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:-1px}

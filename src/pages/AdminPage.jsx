@@ -3,6 +3,8 @@ import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCir
 import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans,
   adminOpenRequests, adminResolveRequest, adminApproveRequest, adminSetBankDetails, platformBankDetails, receiptUrl } from "../lib/supabase.js";
 import { naira } from "../lib/format.js";
+import { billingStatus } from "../features/billing/status.js";
+import Statement from "../components/Statement.jsx";
 import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal, Stat } from "../components/ui.jsx";
 
 /* =====================================================================
@@ -21,13 +23,26 @@ import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal, Stat } from "
 
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—");
 
-/* A balance is only alarming in context: ₦0 on the free tier is fine,
-   ₦0 on Growth means they stop working shortly. */
-function balanceTone(balance, monthlyCharge) {
-  if (monthlyCharge <= 0) return "muted";
-  if (balance < 0) return "danger";
-  if (balance < monthlyCharge) return "warn";
-  return "ok";
+/* Who needs chasing, in the order you'd chase them. A list sorted by
+   name makes you read every row to find the one that matters. */
+const RANK = { behind: 0, due: 1, thin: 2, ahead: 3, free: 4 };
+
+/* The detail payload has the ledger but no "last paid" of its own, and
+   the newest credit in the ledger is exactly that. */
+function lastPaidAt(entries) {
+  return (entries || [])
+    .filter((e) => e.kind === "credit")
+    .map((e) => e.createdAt)
+    .sort()
+    .pop() || null;
+}
+
+export function byTrouble(a, b) {
+  const sa = billingStatus({ balance: a.balance, monthly: a.monthly_charge });
+  const sb = billingStatus({ balance: b.balance, monthly: b.monthly_charge });
+  if (RANK[sa.state] !== RANK[sb.state]) return RANK[sa.state] - RANK[sb.state];
+  if (Number(a.balance) !== Number(b.balance)) return Number(a.balance) - Number(b.balance);
+  return String(a.name || "").localeCompare(String(b.name || ""));
 }
 
 export default function AdminPage() {
@@ -103,13 +118,16 @@ export default function AdminPage() {
         {!detail ? <Card><Empty text="Loading…" /></Card> : (
           <>
             <div className="cp-tiles" style={{ marginBottom: 18 }}>
-              <Stat icon={Wallet} label="Balance" value={naira(detail.balance)}
+              <Stat icon={Wallet} label="Balance"
+                value={`${Number(detail.balance) < 0 ? "−" : ""}${naira(Math.abs(Number(detail.balance) || 0))}`}
                 sub={detail.monthlyCharge > 0 ? `${naira(detail.monthlyCharge)}/month` : "Free plan"}
-                tone={balanceTone(detail.balance, detail.monthlyCharge) === "ok" ? "brand" : "accent"} />
+                tone={Number(detail.balance) < 0 ? "accent" : "brand"} />
+              <Stat icon={Timer} label="Standing"
+                value={billingStatus({ balance: detail.balance, monthly: detail.monthlyCharge }).short}
+                sub={lastPaidAt(detail.entries) ? `Last paid ${fmtDate(lastPaidAt(detail.entries))}` : "No payment yet"}
+                tone={Number(detail.balance) < 0 ? "accent" : "brand"} />
               <Stat icon={Users} label="Employees" value={detail.seats} sub="Active" />
               <Stat icon={Building2} label="Branches" value={detail.branches.length} />
-              <Stat icon={Timer} label="Months covered" value={detail.monthlyCharge > 0 ? Math.floor(detail.balance / detail.monthlyCharge) : "—"}
-                sub="At the current rate" tone="accent" />
             </div>
 
             <Card style={{ marginBottom: 18 }}>
@@ -136,28 +154,7 @@ export default function AdminPage() {
 
             <Card style={{ marginBottom: 18 }}>
               <Section title={`Statement · ${detail.entries.length}`}>
-                {detail.entries.length === 0 ? <Empty text="Nothing yet — no payments and no charges." /> : (
-                  <div className="cp-table-wrap">
-                    <table className="cp-table">
-                      <thead><tr><th>Date</th><th>What</th><th>Reference</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead>
-                      <tbody>
-                        {detail.entries.map((e) => (
-                          <tr key={e.id}>
-                            <td style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{fmtDate(e.createdAt)}</td>
-                            <td style={{ fontSize: 13 }}>
-                              <Badge tone={e.kind === "credit" ? "ok" : e.kind === "charge" ? "muted" : "accent"}>{e.kind}</Badge>
-                              <span style={{ marginLeft: 8 }}>{e.description}</span>
-                            </td>
-                            <td style={{ fontSize: 12.5, color: "var(--muted)" }}>{e.reference || "—"}</td>
-                            <td className="cp-num" style={{ color: Number(e.amount) < 0 ? "var(--muted)" : "var(--ok)", fontWeight: 600 }}>
-                              {Number(e.amount) < 0 ? "−" : "+"}{naira(Math.abs(Number(e.amount)))}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                <Statement entries={detail.entries} showKind showReference />
               </Section>
             </Card>
 
@@ -225,23 +222,33 @@ export default function AdminPage() {
           : rows.length === 0 ? <div style={{ padding: 30 }}><Empty text="No companies yet." /></div> : (
           <div className="cp-table-wrap">
             <table className="cp-table">
-              <thead><tr><th>Company</th><th>Plan</th><th>Staff</th><th>Per month</th><th>Balance</th><th>Last paid</th><th></th></tr></thead>
+              <thead><tr>
+                <th>Company</th><th>Plan</th><th>Staff</th>
+                <th className="cp-num">Per month</th>
+                <th className="cp-num">Balance</th>
+                <th>Standing</th><th>Last paid</th><th></th>
+              </tr></thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="cp-row" onClick={() => openDetail(r)}>
-                    <td style={{ fontWeight: 600, fontSize: 13.5 }}>{r.name}</td>
-                    <td><Badge tone={r.plan === "starter" ? "muted" : "brand"}>{r.plan_name || r.plan}</Badge></td>
-                    <td className="cp-num">{r.seats}</td>
-                    <td className="cp-num">{Number(r.monthly_charge) > 0 ? naira(r.monthly_charge) : "—"}</td>
-                    <td className="cp-num">
-                      <Badge tone={balanceTone(Number(r.balance), Number(r.monthly_charge))}>{naira(r.balance)}</Badge>
-                    </td>
-                    <td style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>{fmtDate(r.last_payment_at)}</td>
-                    <td onClick={(ev) => ev.stopPropagation()}>
-                      <button className="cp-mini" onClick={() => setPayFor(r)}><Plus size={13} /> Payment</button>
-                    </td>
-                  </tr>
-                ))}
+                {[...rows].sort(byTrouble).map((r) => {
+                  const st = billingStatus({ balance: r.balance, monthly: r.monthly_charge });
+                  const bal = Number(r.balance) || 0;
+                  return (
+                    <tr key={r.id} className="cp-row" onClick={() => openDetail(r)}>
+                      <td style={{ fontWeight: 600, fontSize: 13.5 }}>{r.name}</td>
+                      <td><Badge tone={r.plan === "starter" ? "muted" : "brand"}>{r.plan_name || r.plan}</Badge></td>
+                      <td className="cp-num">{r.seats}</td>
+                      <td className="cp-num">{Number(r.monthly_charge) > 0 ? naira(r.monthly_charge) : "—"}</td>
+                      <td className="cp-num" style={{ fontWeight: 600, color: bal < 0 ? "var(--danger)" : undefined }}>
+                        {bal < 0 ? "−" : ""}{naira(Math.abs(bal))}
+                      </td>
+                      <td><Badge tone={st.tone}>{st.short}</Badge></td>
+                      <td style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>{fmtDate(r.last_payment_at)}</td>
+                      <td onClick={(ev) => ev.stopPropagation()}>
+                        <button className="cp-mini" onClick={() => setPayFor(r)}><Plus size={13} /> Payment</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

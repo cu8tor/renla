@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wallet, Copy, Check, AlertCircle, Timer, Landmark, ArrowRight } from "lucide-react";
+import { Wallet, Copy, Check, AlertCircle, Landmark, ArrowRight, TrendingDown } from "lucide-react";
 import { myBilling, raiseBillingRequest } from "../lib/supabase.js";
+import { billingStatus } from "../features/billing/status.js";
+import Statement from "../components/Statement.jsx";
 import { naira, copyText } from "../lib/format.js";
-import { Card, Btn, Field, Section, PageHead, Empty, Badge, Stat, Modal } from "../components/ui.jsx";
+import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal } from "../components/ui.jsx";
 
 /* =====================================================================
    BillingPage — what a customer can see about what they're paying.
@@ -71,7 +73,6 @@ export default function BillingPage({ toast }) {
 
   const monthly = Number(b.monthlyCharge) || 0;
   const balance = Number(b.balance) || 0;
-  const monthsCovered = monthly > 0 ? Math.floor(balance / monthly) : null;
   const inArrears = balance < 0;
   const ref = payRef(b.companyId, b.companyName);
   const openReq = (b.requests || []).find((r) => r.status === "open");
@@ -80,28 +81,7 @@ export default function BillingPage({ toast }) {
     <div className="cp-fade">
       <PageHead title="Billing" sub={`${b.planName || b.plan} · ${b.seats} ${b.seats === 1 ? "person" : "people"}`} />
 
-      {inArrears && (
-        <Card style={{ marginBottom: 18, borderColor: "var(--danger)" }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <AlertCircle size={18} style={{ color: "var(--danger)", marginTop: 1, flex: "0 0 auto" }} />
-            <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
-              <b>{naira(Math.abs(balance))} outstanding.</b> Transfer it using the details below and quote
-              the reference — your balance updates once the payment is confirmed.
-            </div>
-          </div>
-        </Card>
-      )}
-
-      <div className="cp-tiles" style={{ marginBottom: 18 }}>
-        <Stat icon={Wallet} label="Wallet balance" value={naira(balance)}
-          sub={inArrears ? "Outstanding" : "Available"} tone={inArrears ? "accent" : "brand"} />
-        <Stat icon={Timer} label="Covers" value={monthsCovered === null ? "—" : `${Math.max(0, monthsCovered)} ${monthsCovered === 1 ? "month" : "months"}`}
-          sub={monthly > 0 ? `At ${naira(monthly)}/month` : "Free plan"} />
-        <Stat icon={Landmark} label="Your plan" value={b.planName || b.plan}
-          sub={b.seatCap ? `Up to ${b.seatCap} staff` : "Unlimited staff"} />
-        <Stat icon={Check} label="Paid through" value={b.paidThrough ? fmtDate(b.paidThrough) : "—"}
-          sub={b.term === "monthly" ? "Billed monthly" : `Billed ${String(b.term)}`} tone="accent" />
-      </div>
+      <StatusCard b={b} monthly={monthly} balance={balance} />
 
       {/* How to pay — the part that actually matters on this page. */}
       <Card style={{ marginBottom: 18 }}>
@@ -191,25 +171,11 @@ export default function BillingPage({ toast }) {
 
       <Card>
         <Section title="Statement">
-          {(b.entries || []).length === 0 ? <Empty text="Nothing yet — no payments and no charges." /> : (
-            <div className="cp-table-wrap">
-              <table className="cp-table">
-                <thead><tr><th>Date</th><th>What</th><th>Reference</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead>
-                <tbody>
-                  {b.entries.map((e) => (
-                    <tr key={e.id}>
-                      <td style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{fmtDate(e.createdAt)}</td>
-                      <td style={{ fontSize: 13 }}>{e.description}</td>
-                      <td style={{ fontSize: 12.5, color: "var(--muted)" }}>{e.reference || "—"}</td>
-                      <td className="cp-num" style={{ fontWeight: 600, color: Number(e.amount) < 0 ? "var(--muted)" : "var(--ok)" }}>
-                        {Number(e.amount) < 0 ? "−" : "+"}{naira(Math.abs(Number(e.amount)))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.55 }}>
+            Every charge and payment, newest first. The last column is what your balance stood at
+            after that line.
+          </div>
+          <Statement entries={b.entries} />
         </Section>
       </Card>
 
@@ -227,6 +193,84 @@ export default function BillingPage({ toast }) {
             await load();
           }} />
       )}
+    </div>
+  );
+}
+
+/* The one thing a customer came here to find out: am I fine, and do I
+   owe anything?
+
+   This used to be four tiles — balance, months covered, plan, paid
+   through — and ₦0 looked identical whether it meant "up to date" or
+   "about to be cut off". One card, one verdict, one number. */
+export function StatusCard({ b, monthly, balance }) {
+  const st = billingStatus({ balance, monthly });
+
+  const COLOUR = {
+    danger: ["var(--danger)", "var(--danger-soft)"],
+    warn:   ["var(--warn)",   "var(--warn-soft)"],
+    ok:     ["var(--ok)",     "var(--ok-soft)"],
+    muted:  ["var(--muted)",  "var(--card2)"],
+  };
+  const [fg, soft] = COLOUR[st.tone] || COLOUR.muted;
+
+  /* The headline number is whichever one they would act on: what they
+     owe if they owe anything, otherwise what they've got. */
+  const figure = st.state === "behind" ? st.owed : balance;
+  const caption = st.state === "behind" ? "outstanding"
+    : st.state === "free" ? "to pay" : "in your wallet";
+
+  const Icon = st.state === "behind" ? AlertCircle
+    : st.state === "thin" || st.state === "due" ? TrendingDown
+    : st.state === "free" ? Landmark : Check;
+
+  const detail =
+    st.state === "behind"
+      ? `Transfer ${naira(st.owed)} using the details below, then tell us — your balance updates once we've matched it against the bank.`
+    : st.state === "due"
+      ? `Your next monthly charge of ${naira(monthly)} will put you behind. Top up to stay ahead of it.`
+    : st.state === "thin"
+      ? `That's under one month at ${naira(monthly)} a month. Worth topping up before the next charge.`
+    : st.state === "ahead"
+      ? `About ${st.monthsAhead} ${st.monthsAhead === 1 ? "month" : "months"} at ${naira(monthly)} a month. Nothing to do.`
+      : `The ${b.planName || b.plan} plan has no monthly charge.`;
+
+  return (
+    <Card style={{ marginBottom: 18, borderColor: st.state === "behind" ? "var(--danger)" : "var(--line)" }}>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <span className="cp-stat-ic" style={{ background: soft, color: fg, flex: "0 0 auto" }}>
+          <Icon size={17} />
+        </span>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.01em" }}>{st.headline}</div>
+
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "8px 0 6px", flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 30, fontWeight: 600, letterSpacing: "-0.02em", color: fg }}>
+              {naira(Math.abs(Number(figure) || 0))}
+            </span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{caption}</span>
+          </div>
+
+          <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, maxWidth: 560 }}>{detail}</div>
+
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+            <Fact label="Plan" value={b.planName || b.plan} />
+            <Fact label="Charged" value={monthly > 0 ? `${naira(monthly)} / month` : "Nothing"} />
+            <Fact label="Staff counted" value={`${b.seats}${b.seatCap ? ` of ${b.seatCap}` : ""}`} />
+            {b.paidThrough && <Fact label="Paid through" value={fmtDate(b.paidThrough)} />}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function Fact({ label, value }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
     </div>
   );
 }
