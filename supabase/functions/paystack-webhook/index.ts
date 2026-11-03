@@ -62,6 +62,18 @@ async function hmacSha512Hex(secret: string, message: string): Promise<string> {
 }
 
 Deno.serve(async (req) => {
+  try {
+    return await handle(req);
+  } catch (e) {
+    // 500 is right here: Paystack retries, and settling is idempotent, so
+    // a crash costs a delay rather than a payment. The log is the point.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("paystack-webhook crashed:", msg, e instanceof Error ? e.stack : "");
+    return json({ error: msg }, 500);
+  }
+});
+
+async function handle(req: Request): Promise<Response> {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const key = (Deno.env.get("PAYSTACK_SECRET_KEY") ?? "").trim();
@@ -155,4 +167,4 @@ Deno.serve(async (req) => {
 
   console.log("Settled", reference, JSON.stringify(data));
   return json({ ok: true, reference, result: data });
-});
+}

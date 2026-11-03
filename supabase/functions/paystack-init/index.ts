@@ -32,6 +32,20 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
+  try {
+    return await handle(req);
+  } catch (e) {
+    // A bare throw here becomes a Supabase 500 with no CORS headers, and
+    // the browser then reports it as a CORS violation — which sends you
+    // looking at origins for an hour instead of reading the real error.
+    // So every failure leaves here as JSON the page can actually show.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("paystack-init crashed:", msg, e instanceof Error ? e.stack : "");
+    return json({ error: msg }, 500);
+  }
+});
+
+async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
@@ -105,4 +119,4 @@ Deno.serve(async (req) => {
     reference: intent.reference,
     amount: Number(intent.amount),
   });
-});
+}
