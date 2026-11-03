@@ -175,7 +175,7 @@ export default function BillingPage({ toast }) {
       </Card>
 
       <Card>
-        <Section title="Statement">
+        <Section title="Statement" action={<WalletBalance balance={balance} />}>
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.55 }}>
             Every charge and payment, newest first. The last column is what your balance stood at
             after that line.
@@ -219,12 +219,6 @@ export function StatusCard({ b, monthly, balance }) {
   };
   const [fg, soft] = COLOUR[st.tone] || COLOUR.muted;
 
-  /* The headline number is whichever one they would act on: what they
-     owe if they owe anything, otherwise what they've got. */
-  const figure = st.state === "behind" ? st.owed : balance;
-  const caption = st.state === "behind" ? "outstanding"
-    : st.state === "free" ? "to pay" : "in your wallet";
-
   const Icon = st.state === "behind" ? AlertCircle
     : st.state === "thin" || st.state === "due" ? TrendingDown
     : st.state === "free" ? Landmark : Check;
@@ -241,25 +235,18 @@ export function StatusCard({ b, monthly, balance }) {
       : `The ${b.planName || b.plan} plan has no monthly charge.`;
 
   return (
-    <Card style={{ height: "100%", borderColor: st.state === "behind" ? "var(--danger)" : "var(--line)" }}>
-      <div style={{ display: "flex", gap: 14, alignItems: "stretch", height: "100%" }}>
-        <span className="cp-stat-ic" style={{ background: soft, color: fg, flex: "0 0 auto", alignSelf: "flex-start" }}>
+    <Card style={{ borderColor: st.state === "behind" ? "var(--danger)" : "var(--line)" }}>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <span className="cp-stat-ic" style={{ background: soft, color: fg, flex: "0 0 auto" }}>
           <Icon size={17} />
         </span>
 
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.01em" }}>{st.headline}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.01em", color: fg }}>{st.headline}</div>
 
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "8px 0 6px", flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 30, fontWeight: 600, letterSpacing: "-0.02em", color: fg }}>
-              {naira(Math.abs(Number(figure) || 0))}
-            </span>
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{caption}</span>
-          </div>
+          <div style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.65, maxWidth: 560, marginTop: 7 }}>{detail}</div>
 
-          <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, maxWidth: 560 }}>{detail}</div>
-
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
             <Fact label="Plan" value={b.planName || b.plan} />
             <Fact label="Charged" value={monthly > 0 ? `${naira(monthly)} / month` : "Nothing"} />
             <Fact label="Staff counted" value={`${b.seats}${b.seatCap ? ` of ${b.seatCap}` : ""}`} />
@@ -268,6 +255,23 @@ export function StatusCard({ b, monthly, balance }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+/* The wallet balance belongs to the statement, not to the status card:
+   it is the figure the running-balance column arrives at, so showing it
+   anywhere else means the same number in two places with two chances to
+   disagree. */
+function WalletBalance({ balance }) {
+  const n = Number(balance) || 0;
+  const colour = n < 0 ? "var(--danger)" : n > 0 ? "var(--ok)" : "var(--ink)";
+  return (
+    <div style={{ textAlign: "right", flex: "0 0 auto" }}>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 1 }}>Wallet balance</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 23, fontWeight: 600, letterSpacing: "-0.02em", color: colour, lineHeight: 1.1 }}>
+        {n < 0 ? "−" : ""}{naira(Math.abs(n))}
+      </div>
+    </div>
   );
 }
 
