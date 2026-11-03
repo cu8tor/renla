@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle, Check, X, FileText } from "lucide-react";
 import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans,
-  adminOpenRequests, adminResolveRequest, adminApproveRequest, adminSetBankDetails, platformBankDetails, receiptUrl } from "../lib/supabase.js";
+  adminOpenRequests, adminResolveRequest, adminApproveRequest, adminSetBankDetails, platformBankDetails, receiptUrl,
+  adminSetIndustry } from "../lib/supabase.js";
 import { naira } from "../lib/format.js";
 import { billingStatus } from "../features/billing/status.js";
+import { INDUSTRIES, industryLabel } from "../lib/industries.js";
 import Statement from "../components/Statement.jsx";
 import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal, Stat } from "../components/ui.jsx";
 
@@ -112,7 +114,9 @@ export default function AdminPage() {
           <ChevronLeft size={14} /> All companies
         </button>
 
-        <PageHead title={co.name} sub={co.plan_name || co.plan}
+        <PageHead title={co.name}
+          sub={[co.plan_name || co.plan, co.industry ? industryLabel(co.industry) : null,
+                co.created_at ? `joined ${fmtDate(co.created_at)}` : null].filter(Boolean).join(" · ")}
           action={<Btn icon={Plus} onClick={() => setPayFor(co)}>Record payment</Btn>} />
 
         {!detail ? <Card><Empty text="Loading…" /></Card> : (
@@ -144,9 +148,21 @@ export default function AdminPage() {
                       </select>
                     </Field>
                   </div>
+                  <div style={{ minWidth: 260 }}>
+                    <Field label="Line of work">
+                      <select className="cp-input" value={co.industry || ""}
+                        onChange={async (e) => {
+                          try { await adminSetIndustry(co.id, e.target.value); await load(); await openDetail(co); }
+                          catch (x) { setErr(x.message); }
+                        }}>
+                        <option value="">Not set</option>
+                        {INDUSTRIES.map((i) => <option key={i.key} value={i.key}>{i.label}</option>)}
+                      </select>
+                    </Field>
+                  </div>
                   <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55, flex: 1, minWidth: 240, paddingBottom: 10 }}>
-                    Changing this changes what they're charged from the next monthly posting. It doesn't
-                    bill them now and doesn't refund anything already charged.
+                    Changing the plan changes what they're charged from the next monthly posting. It
+                    doesn't bill them now and doesn't refund anything already charged.
                   </div>
                 </div>
               </Section>
@@ -223,10 +239,10 @@ export default function AdminPage() {
           <div className="cp-table-wrap">
             <table className="cp-table">
               <thead><tr>
-                <th>Company</th><th>Plan</th><th>Staff</th>
+                <th>Company</th><th>Line of work</th><th>Plan</th><th>Staff</th>
                 <th className="cp-num">Per month</th>
                 <th className="cp-num">Balance</th>
-                <th>Standing</th><th>Last paid</th><th></th>
+                <th>Standing</th><th>Joined</th><th>Last paid</th><th></th>
               </tr></thead>
               <tbody>
                 {[...rows].sort(byTrouble).map((r) => {
@@ -235,6 +251,9 @@ export default function AdminPage() {
                   return (
                     <tr key={r.id} className="cp-row" onClick={() => openDetail(r)}>
                       <td style={{ fontWeight: 600, fontSize: 13.5 }}>{r.name}</td>
+                      <td style={{ fontSize: 12.5, color: r.industry ? "var(--ink)" : "var(--muted)" }}>
+                        {r.industry ? industryLabel(r.industry) : "—"}
+                      </td>
                       <td><Badge tone={r.plan === "starter" ? "muted" : "brand"}>{r.plan_name || r.plan}</Badge></td>
                       <td className="cp-num">{r.seats}</td>
                       <td className="cp-num">{Number(r.monthly_charge) > 0 ? naira(r.monthly_charge) : "—"}</td>
@@ -242,6 +261,7 @@ export default function AdminPage() {
                         {bal < 0 ? "−" : ""}{naira(Math.abs(bal))}
                       </td>
                       <td><Badge tone={st.tone}>{st.short}</Badge></td>
+                      <td style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>{fmtDate(r.created_at)}</td>
                       <td style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>{fmtDate(r.last_payment_at)}</td>
                       <td onClick={(ev) => ev.stopPropagation()}>
                         <button className="cp-mini" onClick={() => setPayFor(r)}><Plus size={13} /> Payment</button>

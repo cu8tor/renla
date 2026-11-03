@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Clock3, Plus, Check, X, Building2, MapPin, Download, PartyPopper, BadgeCheck, Trash2, Database, Info, Copy, Camera, Smartphone, Wifi, ShieldAlert, RefreshCw, Trophy, CalendarDays } from "lucide-react";
-import { supabase } from "../lib/supabase.js";
+import { supabase, setCompanyIndustry } from "../lib/supabase.js";
+import { INDUSTRIES } from "../lib/industries.js";
 import { DEFAULT_PAYROLL } from "../features/payroll/payrollEngine.js";
 import { durLabel, crossesMidnight, minutesBetween } from "../features/attendance/attendanceLogic.js";
 import { uid, fmtShort, fmtLong, copyText } from "../lib/format.js";
@@ -26,6 +27,7 @@ const ONBOARDING_FIELDS = [
 
 function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, deleteSite, approveDevice, revokeDevice, removeDevice, reload, saveOnboardingRequirements, saveLeaderboardSettings, saveLeavePolicy }) {
   const [name, setName] = useState(db.company.name);
+  const [industry, setIndustry] = useState(db.company.industry || "");
   const [work, setWork] = useState({ ...DEFAULT_WORK, ...(db.work || {}) });
   const [onboarding, setOnboarding] = useState({ ...DEFAULT_ONBOARDING, ...(db.onboarding || {}) });
   const [leavePolicy, setLeavePolicy] = useState({ ...DEFAULT_LEAVE_POLICY, ...(db.leavePolicy || {}) });
@@ -51,6 +53,24 @@ function SettingsPage({ db, update, toast, exportData, me, resetAll, addSite, de
             <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 220 }}><Field label="Company name"><input className="cp-input" value={name} onChange={(e) => setName(e.target.value)} /></Field></div>
               <Btn onClick={() => { update((d) => ({ ...d, company: { ...d.company, name } })); toast("Company name saved"); }}>Save</Btn>
+            </div>
+
+            {/* Saved on change through its own RPC, not through the sync
+                layer — that only writes name and address, so routing it
+                there would look like it saved and quietly drop it. */}
+            <div style={{ marginTop: 14, maxWidth: 360 }}>
+              <Field label="Line of work" hint="Shifts, overtime and leave work differently by trade. This is what Renla tunes for you.">
+                <select className="cp-input" value={industry}
+                  onChange={async (e) => {
+                    const v = e.target.value;
+                    setIndustry(v);
+                    try { await setCompanyIndustry(v); toast("Line of work saved"); }
+                    catch (x) { setIndustry(db.company.industry || ""); toast(x.message, "danger", 7000); }
+                  }}>
+                  <option value="">Not set</option>
+                  {INDUSTRIES.map((i) => <option key={i.key} value={i.key}>{i.label}</option>)}
+                </select>
+              </Field>
             </div>
           </Section>
         </Card>

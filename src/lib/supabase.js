@@ -66,7 +66,7 @@ export async function updatePassword(newPassword) {
   if (error) throw new Error(friendly(error.message));
 }
 
-export async function createCompany(companyName, fullName, jobTitle) {
+export async function createCompany(companyName, fullName, jobTitle, industry) {
   const { error } = await supabase.rpc("create_company_and_admin", {
     p_company_name: companyName,
     p_full_name: fullName,
@@ -91,6 +91,29 @@ export async function createCompany(companyName, fullName, jobTitle) {
         .eq("company_id", prof.company_id);
     }
   } catch { /* HR can tick these in Settings; not worth failing signup for */ }
+
+  // What trade they're in. Same trade-off as above: the company exists
+  // and they're signed in either way, and HR can set this in Settings,
+  // so a failure here is a missing data point rather than a failed
+  // signup. The admin list shows a blank so it's visible when it happens.
+  if (industry) {
+    try { await supabase.rpc("set_company_industry", { p_industry: industry }); }
+    catch { /* visible as "—" in the admin list; HR can set it in Settings */ }
+  }
+}
+
+/* HR changing it later, from Settings. */
+export async function setCompanyIndustry(industry) {
+  const { error } = await supabase.rpc("set_company_industry", { p_industry: industry || "" });
+  if (error) throw new Error(friendly(error.message));
+}
+
+/* Renla setting it for a company that signed up before it was asked. */
+export async function adminSetIndustry(companyId, industry) {
+  const { error } = await supabase.rpc("admin_set_industry", {
+    p_company: companyId, p_industry: industry || "",
+  });
+  if (error) throw new Error(friendly(error.message));
 }
 
 export async function joinCompany(employeeId) {
@@ -493,6 +516,7 @@ export async function loadWorkspace(profile) {
     company: {
       id: company.data.id, name: company.data.name,
       address: company.data.address || "", country: company.data.country || "Nigeria",
+      industry: company.data.industry || "",
     },
     work: settings.data.work,
     payroll: settings.data.payroll,

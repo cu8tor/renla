@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Sun, Moon, Check, ArrowRight, AlertCircle, Timer, Building2, KeyRound, ChevronLeft, Eye, EyeOff } from "lucide-react";
 import { supabase, signIn as sbSignIn, signUp as sbSignUp, signOut as sbSignOut, createCompany, joinCompany, acceptInvite, requestPasswordReset, updatePassword } from "../lib/supabase.js";
 import { Card, Btn, Field, Dot } from "../components/ui.jsx";
+import { INDUSTRIES } from "../lib/industries.js";
 import { StyleTag } from "../components/StyleTag.jsx";
 import renlaLogoWhite from "../assets/renla-logo-white.png";
 
@@ -233,7 +234,7 @@ function ResetPasswordScreen({ theme, dark, setDark, onDone }) {
 }
 
 function NewCompany({ theme, dark, setDark, profile }) {
-  const [f, setF] = useState({ company: "", name: "", title: "" });
+  const [f, setF] = useState({ company: "", name: "", title: "", industry: "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [joinId, setJoinId] = useState("");
@@ -276,8 +277,12 @@ function NewCompany({ theme, dark, setDark, profile }) {
 
   const create = async () => {
     if (!f.company.trim() || !f.name.trim()) { setErr("Fill in your company name and your own name."); return; }
+    // Asked rather than optional: a dropdown nobody has to fill is a
+    // dropdown nobody fills, and this is the one answer that tells us
+    // what to build next.
+    if (!f.industry) { setErr("Pick the line of work that fits best — it decides what we set up for you."); return; }
     setErr(""); setBusy(true);
-    try { await createCompany(f.company.trim(), f.name.trim(), f.title.trim()); window.location.reload(); }
+    try { await createCompany(f.company.trim(), f.name.trim(), f.title.trim(), f.industry); window.location.reload(); }
     catch (e) { setErr(e.message); setBusy(false); }
   };
 
@@ -331,6 +336,12 @@ function NewCompany({ theme, dark, setDark, profile }) {
           <Field label="Company name"><input className="cp-input" autoFocus value={f.company} onChange={(e) => setF({ ...f, company: e.target.value })} placeholder="e.g. Ade Apparel Ltd" /></Field>
           <Field label="Your full name"><input className="cp-input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
           <Field label="Your job title"><input className="cp-input" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Founder" /></Field>
+          <Field label="What kind of business is it?" hint="Shifts, overtime and leave work differently by trade — this is what we tune for you.">
+            <select className="cp-input" value={f.industry} onChange={(e) => setF({ ...f, industry: e.target.value })}>
+              <option value="">Choose one…</option>
+              {INDUSTRIES.map((i) => <option key={i.key} value={i.key}>{i.label}</option>)}
+            </select>
+          </Field>
           {err && <div style={{ fontSize: 13, color: "var(--danger)" }}>{err}</div>}
           <div><Btn icon={busy ? Timer : ArrowRight} disabled={busy} onClick={create}>{busy ? "Setting up…" : "Create company"}</Btn></div>
         </div>
