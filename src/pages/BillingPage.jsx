@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Copy, Check, AlertCircle, Landmark, TrendingDown, CreditCard, Timer } from "lucide-react";
 import { myBilling, raiseBillingRequest, startCardPayment } from "../lib/supabase.js";
-import { billingStatus } from "../features/billing/status.js";
+import { billingStatus, coveredUntil } from "../features/billing/status.js";
 import Statement from "../components/Statement.jsx";
 import { naira, copyText } from "../lib/format.js";
 import { Card, Btn, Field, Section, PageHead, Empty, Badge, Modal } from "../components/ui.jsx";
@@ -221,6 +221,9 @@ export default function BillingPage({ toast }) {
    "about to be cut off". One card, one verdict, one number. */
 export function StatusCard({ b, monthly, balance }) {
   const st = billingStatus({ balance, monthly });
+  /* Worked out from the balance rather than read from companies.paid_through:
+     a stored date is a promise the wallet can't keep once headcount moves. */
+  const covered = coveredUntil({ balance, monthly });
 
   const COLOUR = {
     danger: ["var(--danger)", "var(--danger-soft)"],
@@ -242,7 +245,7 @@ export function StatusCard({ b, monthly, balance }) {
     : st.state === "thin"
       ? `That's under one month at ${naira(monthly)} a month. Worth topping up before the next charge.`
     : st.state === "ahead"
-      ? `About ${st.monthsAhead} ${st.monthsAhead === 1 ? "month" : "months"} at ${naira(monthly)} a month. Nothing to do.`
+      ? `About ${st.monthsAhead} ${st.monthsAhead === 1 ? "month" : "months"} of credit at ${naira(monthly)} a month. Add staff beyond your included seats and it runs down sooner.`
       : `The ${b.planName || b.plan} plan has no monthly charge.`;
 
   return (
@@ -261,7 +264,7 @@ export function StatusCard({ b, monthly, balance }) {
             <Fact label="Plan" value={b.planName || b.plan} />
             <Fact label="Charged" value={monthly > 0 ? `${naira(monthly)} / month` : "Nothing"} />
             <Fact label="Staff counted" value={`${b.seats}${b.seatCap ? ` of ${b.seatCap}` : ""}`} />
-            {b.paidThrough && <Fact label="Paid through" value={fmtDate(b.paidThrough)} />}
+            {covered && <Fact label="Covered until" value={`about ${fmtDate(covered)}`} />}
           </div>
         </div>
       </div>
@@ -314,9 +317,16 @@ function PayModal({ how, b, monthly, outstanding, payRef: ref, toast, onClose, o
   /* Options are the real terms, so the saving shown is the saving given.
      Anything hand-rolled here would drift from what the database does on
      settlement. */
+  /* What a term actually buys is credit, not time. Pay ₦50,000 and
+     ₦60,000 lands in the wallet; the monthly charge then eats it at
+     whatever rate your headcount sets. Selling it as "twelve months"
+     was a promise that broke the moment somebody hired. */
   const options = [
-    ...(monthlyTerm ? [{ ...monthlyTerm, saving: 0 }] : []),
-    ...terms.map((t) => ({ ...t, saving: Math.max(0, monthly * t.periodMonths - Number(t.price)) })),
+    ...(monthlyTerm ? [{ ...monthlyTerm, credit: Number(monthlyTerm.price), saving: 0 }] : []),
+    ...terms.map((t) => {
+      const credit = monthly * t.periodMonths;
+      return { ...t, credit, saving: Math.max(0, credit - Number(t.price)) };
+    }),
   ];
 
   const [choice, setChoice] = useState(options[0]?.key || "");
@@ -373,6 +383,14 @@ function PayModal({ how, b, monthly, outstanding, payRef: ref, toast, onClose, o
         submitLabel={busy ? "Opening Paystack…" : how === "card" ? "Continue to Paystack" : "Show me where to send it"}>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {monthly > 0 && (
+            <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55, marginBottom: 4 }}>
+              Your wallet is charged {naira(monthly)} a month at today's headcount. Paying for longer
+              buys more credit at a lower rate — it doesn't fix a date, so adding staff beyond your
+              included seats uses it up sooner.
+            </div>
+          )}
+
           {outstanding > 0 && (
             <div style={{ fontSize: 12.5, color: "var(--danger)", lineHeight: 1.55, marginBottom: 2 }}>
               You're {naira(outstanding)} behind. Anything you pay clears that first.
@@ -396,7 +414,10 @@ function PayModal({ how, b, monthly, outstanding, payRef: ref, toast, onClose, o
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3, lineHeight: 1.5 }}>
-                  {o.blurb}{o.saving > 0 ? ` Saves ${naira(o.saving)} against paying monthly.` : ""}
+                  {o.saving > 0
+                    ? <>Puts <b style={{ color: "var(--ink)" }}>{naira(o.credit)}</b> in your wallet
+                        for {naira(o.price)} — {o.blurb.toLowerCase()} Saves {naira(o.saving)}.</>
+                    : o.blurb}
                 </div>
               </button>
             );

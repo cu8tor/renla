@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { billingStatus, withRunningBalance, prettyWhat } from "./status.js";
+import { billingStatus, withRunningBalance, prettyWhat, coveredUntil } from "./status.js";
 
 describe("billingStatus", () => {
   it("says there is nothing to pay on a plan with no charge", () => {
@@ -147,5 +147,56 @@ describe("prettyWhat", () => {
 
   it("ignores an impossible month rather than inventing one", () => {
     expect(prettyWhat("Subscription — 2026-13")).toBe("Subscription — 2026-13");
+  });
+});
+
+describe("coveredUntil", () => {
+  const from = new Date("2026-11-03T12:00:00Z");
+
+  it("gives nothing to show when there is no monthly charge", () => {
+    expect(coveredUntil({ balance: 50000, monthly: 0, from })).toBeNull();
+  });
+
+  it("gives nothing to show when the wallet is empty or behind", () => {
+    expect(coveredUntil({ balance: 0, monthly: 5000, from })).toBeNull();
+    expect(coveredUntil({ balance: -5000, monthly: 5000, from })).toBeNull();
+  });
+
+  it("counts whole months forward", () => {
+    const d = coveredUntil({ balance: 15000, monthly: 5000, from });
+    expect(d.getFullYear()).toBe(2027);
+    expect(d.getMonth()).toBe(1);          // February
+  });
+
+  /* The case that prompted this: a year bought at three staff, then the
+     headcount grows. The same ₦60,000 has to cover a bigger charge, and
+     the date must come back towards us rather than stay put. */
+  it("moves closer when the monthly charge rises", () => {
+    const quiet = coveredUntil({ balance: 60000, monthly: 5000, from });
+    const grown = coveredUntil({ balance: 60000, monthly: 9000, from });
+    expect(grown.getTime()).toBeLessThan(quiet.getTime());
+  });
+
+  it("is roughly twelve months for a year's credit at the rate it was bought", () => {
+    const d = coveredUntil({ balance: 60000, monthly: 5000, from });
+    const months = (d.getFullYear() - 2026) * 12 + (d.getMonth() - 10);
+    expect(months).toBe(12);
+  });
+
+  it("handles a part month", () => {
+    const d = coveredUntil({ balance: 7500, monthly: 5000, from });   // 1.5 months
+    expect(d.getTime()).toBeGreaterThan(new Date("2026-12-03T12:00:00Z").getTime());
+    expect(d.getTime()).toBeLessThan(new Date("2026-12-25T12:00:00Z").getTime());
+  });
+
+  /* Adding a month to the 31st must not skip February entirely. */
+  it("does not overshoot from the end of a long month", () => {
+    const d = coveredUntil({ balance: 5000, monthly: 5000, from: new Date("2027-01-31T12:00:00Z") });
+    expect(d.getMonth()).toBe(1);          // February, not March
+  });
+
+  it("never returns a date in the past", () => {
+    const d = coveredUntil({ balance: 1, monthly: 5000, from });
+    expect(d.getTime()).toBeGreaterThanOrEqual(from.getTime() - 86400000);
   });
 });

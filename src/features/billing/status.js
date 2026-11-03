@@ -112,3 +112,43 @@ export function prettyWhat(description) {
   }
   return s;
 }
+
+/* When the wallet runs out, at the rate they're being charged today.
+
+   This replaces companies.paid_through as the thing a customer is shown.
+   A stored date is a promise the wallet can't keep: pay for a year at
+   three staff, hire eight more, and the date still says twelve months
+   while the money covers six. Two sources of truth, and the date is the
+   one that's wrong.
+
+   Derived, it corrects itself. Add staff and the date moves closer, which
+   is both true and the thing they need to know.
+
+   Returns null when there is nothing to work out: no charge to consume
+   the credit, or no credit left to consume.
+
+   Approximate on purpose — month lengths differ and headcount will change
+   again, so it is always shown with an "about". */
+export function coveredUntil({ balance, monthly, from = new Date() }) {
+  const b = Number(balance) || 0;
+  const m = Number(monthly) || 0;
+  if (m <= 0 || b <= 0) return null;
+
+  const months = b / m;
+  const whole = Math.floor(months);
+  const out = new Date(from.getTime());
+
+  // Pin to the 1st before adding months, so adding one month to the 31st
+  // can't skip a month entirely, then put the day back.
+  const day = out.getDate();
+  out.setDate(1);
+  out.setMonth(out.getMonth() + whole);
+  out.setDate(Math.min(day, daysInMonth(out.getFullYear(), out.getMonth())));
+
+  out.setDate(out.getDate() + Math.round((months - whole) * 30));
+  return out;
+}
+
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
