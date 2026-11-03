@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wallet, Copy, Check, AlertCircle, Landmark, ArrowRight, TrendingDown, CreditCard, Timer } from "lucide-react";
+import { Copy, Check, AlertCircle, Landmark, TrendingDown, CreditCard, Timer } from "lucide-react";
 import { myBilling, raiseBillingRequest, startCardPayment } from "../lib/supabase.js";
 import { billingStatus } from "../features/billing/status.js";
 import Statement from "../components/Statement.jsx";
@@ -46,8 +46,7 @@ function CopyRow({ label, value, toast }) {
 export default function BillingPage({ toast }) {
   const [b, setB] = useState(null);
   const [err, setErr] = useState("");
-  const [funding, setFunding] = useState(null);   // { term } — null term means a plain top-up
-  const [carding, setCarding] = useState(false); // card-payment sheet open
+  const [paying, setPaying] = useState(null);    // null | "card" | "transfer"
 
   // Set while we're waiting for Paystack's webhook to land after a
   // redirect back from checkout.
@@ -137,7 +136,6 @@ export default function BillingPage({ toast }) {
 
   const monthly = Number(b.monthlyCharge) || 0;
   const balance = Number(b.balance) || 0;
-  const inArrears = balance < 0;
   const ref = payRef(b.companyId, b.companyName);
   const openReq = (b.requests || []).find((r) => r.status === "open");
 
@@ -157,46 +155,16 @@ export default function BillingPage({ toast }) {
         </Card>
       )}
 
-      {/* Where you stand and where to send it, on one row — the two
-          things somebody opens this page for. They stack below 1080px,
-          which is where most of this gets read. */}
-      <div className="cp-two-col cp-two-col-even" style={{ marginBottom: 18 }}>
-        <StatusCard b={b} monthly={monthly} balance={balance} />
+      {/* Where you stand, and the two ways to do something about it.
+          The bank details used to sit here permanently; they only matter
+          once somebody has chosen to transfer, so they live inside that
+          flow now. */}
+      <StatusCard b={b} monthly={monthly} balance={balance} />
 
-        {/* How to pay — the part that actually matters on this page. */}
-        <Card>
-        <Section title="How to pay">
-          {!b.bank?.account_number ? (
-            <Empty text="Renla hasn't published bank details yet. Get in touch at hello@renla.app." />
-          ) : (
-            <>
-              <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.55 }}>
-                Transfer from your business account and put the reference in the narration. That reference
-                is how your transfer gets matched to this company, so it matters more than the amount does.
-              </div>
-              <CopyRow label="Bank" value={b.bank.bank_name} toast={toast} />
-              <CopyRow label="Account name" value={b.bank.account_name} toast={toast} />
-              <CopyRow label="Account number" value={b.bank.account_number} toast={toast} />
-              <CopyRow label="Reference" value={ref} toast={toast} />
-              {b.bank.payment_note && (
-                <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, lineHeight: 1.55 }}>{b.bank.payment_note}</div>
-              )}
-              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12, lineHeight: 1.55 }}>
-                Transfers are confirmed by hand, so a payment usually shows up here within a working day
-                rather than instantly.
-              </div>
-            </>
-          )}
-        </Section>
-        </Card>
-      </div>
-
-      {/* Fund the wallet. The whole point of this page. */}
-      <Card style={{ marginBottom: 18 }}>
-        <Section title="Fund your wallet">
+      <Card style={{ margin: "18px 0" }}>
+        <Section title="Add money to your wallet">
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14, lineHeight: 1.55 }}>
-            Made a transfer? Tell us how much and attach the receipt — we'll confirm it against the bank
-            and your balance updates, usually within a working day.
+            Pick how long you want to cover, then how you'd like to pay.
           </div>
 
           {openReq && (
@@ -206,58 +174,19 @@ export default function BillingPage({ toast }) {
           )}
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Btn icon={CreditCard} onClick={() => setCarding(true)}>Pay by card</Btn>
-            <Btn icon={Wallet} variant="ghost" disabled={Boolean(openReq)} onClick={() => setFunding({ term: null })}>
-              I've made a transfer
+            <Btn icon={CreditCard} onClick={() => setPaying("card")}>Pay by card</Btn>
+            <Btn icon={Landmark} variant="ghost" disabled={Boolean(openReq)} onClick={() => setPaying("transfer")}>
+              Pay by bank transfer
             </Btn>
           </div>
 
-          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10, lineHeight: 1.55 }}>
-            Card, transfer or USSD through Paystack credits your wallet in seconds. A bank transfer
-            straight to the account above is confirmed by hand, so it takes until the next working day.
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12, lineHeight: 1.6 }}>
+            Card goes through Paystack — you can pay by card, transfer or USSD there, and your wallet is
+            credited in seconds. A transfer straight to our account is checked by hand, so it lands on
+            your balance by the next working day.
           </div>
-
-          {monthly > 0 && (
-            <>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "22px 0 10px" }}>
-                Pay ahead and save
-              </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {(b.terms || []).map((t) => {
-                  const full = monthly * t.periodMonths;
-                  const saving = full - Number(t.price);
-                  const current = b.term === t.key;
-                  return (
-                    <div key={t.key} style={{
-                      flex: "1 1 200px", border: `1px solid ${current ? "var(--brand)" : "var(--line)"}`,
-                      borderRadius: 12, padding: 14, background: current ? "var(--brand-soft)" : "var(--card2)",
-                    }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                        <span style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</span>
-                        {current && <Badge tone="brand">Current</Badge>}
-                      </div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 19, fontWeight: 700, marginTop: 6 }}>
-                        {naira(t.price)}
-                      </div>
-                      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.5 }}>
-                        {t.blurb}{saving > 0 ? ` Saves ${naira(saving)}.` : ""}
-                      </div>
-                      {t.key !== "monthly" && (
-                        <div style={{ marginTop: 10 }}>
-                          <button className="cp-mini" disabled={Boolean(openReq)} onClick={() => setFunding({ term: t })}>
-                            <ArrowRight size={13} /> Pay this
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
         </Section>
       </Card>
-
       <Card>
         <Section title="Statement" action={<WalletBalance balance={balance} />}>
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.55 }}>
@@ -268,24 +197,17 @@ export default function BillingPage({ toast }) {
         </Section>
       </Card>
 
-      {carding && (
-        <CardModal monthly={monthly} outstanding={balance < 0 ? Math.abs(balance) : 0}
-          onClose={() => setCarding(false)} />
-      )}
-
-      {funding && (
-        <FundModal term={funding.term} monthly={monthly} outstanding={inArrears ? Math.abs(balance) : 0}
-          onClose={() => setFunding(null)}
-          onSend={async ({ amount, note, receipt }) => {
-            await raiseBillingRequest({
-              kind: funding.term ? "term_change" : "topup",
-              term: funding.term?.key ?? null,
-              amount, note, receipt,
-            });
-            toast("Thanks — we'll confirm it against the bank and update your balance.");
-            setFunding(null);
-            await load();
-          }} />
+      {paying && (
+        <PayModal
+          how={paying}
+          b={b}
+          monthly={monthly}
+          outstanding={balance < 0 ? Math.abs(balance) : 0}
+          payRef={ref}
+          toast={toast}
+          onClose={() => setPaying(null)}
+          onSent={async () => { setPaying(null); await load(); }}
+        />
       )}
     </div>
   );
@@ -373,129 +295,197 @@ function Fact({ label, value }) {
   );
 }
 
-/* Paying by card.
+/* =====================================================================
+   PayModal — choose how much, then pay.
 
-   Deliberately thin: pick an amount, go to Paystack. Nothing is
-   confirmed here, because nothing that happens in this browser is
-   evidence that money moved — a signed webhook from Paystack is, and
-   that arrives whether or not this tab is still open. */
-function CardModal({ monthly, outstanding, onClose }) {
-  const suggested = outstanding || monthly || 0;
-  const [amount, setAmount] = useState(suggested ? String(suggested) : "");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
+   One dialog for both routes, because the decision is the same one:
+   how long do you want to cover? Only the second half differs, and
+   splitting it into two dialogs meant two places to keep the term
+   prices right.
 
-  const go = async () => {
-    const n = Number(String(amount).replace(/[^0-9.]/g, ""));
-    if (!n || n <= 0) { setErr("How much do you want to pay?"); return; }
-    if (n < 100) { setErr("The smallest card payment is ₦100."); return; }
-    setErr(""); setBusy(true);
-    try {
-      const { url } = await startCardPayment(n);
-      // Replace rather than push: the back button should return to
-      // billing, not to a stale checkout that has already been used.
-      window.location.replace(url);
-    } catch (e) { setErr(e.message || "Couldn't start that payment."); setBusy(false); }
-  };
+   The bank details live in the transfer branch rather than on the page.
+   An account number on permanent display is noise to everybody who
+   isn't transferring today, and most people aren't.
+   ===================================================================== */
+function PayModal({ how, b, monthly, outstanding, payRef: ref, toast, onClose, onSent }) {
+  const terms = (b.terms || []).filter((t) => t.key !== "monthly");
+  const monthlyTerm = (b.terms || []).find((t) => t.key === "monthly");
 
-  return (
-    <Modal title="Pay by card" onClose={onClose} onSubmit={go} submitDisabled={busy}
-      submitLabel={busy ? "Opening Paystack…" : "Continue to Paystack"}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Field label="Amount (₦)"
-          hint={outstanding ? `${naira(outstanding)} would clear what you owe` : monthly ? `${naira(monthly)} covers one month` : undefined}>
-          <input className="cp-input" autoFocus inputMode="decimal" value={amount}
-            onChange={(e) => setAmount(e.target.value)} placeholder="5000" />
-        </Field>
+  /* Options are the real terms, so the saving shown is the saving given.
+     Anything hand-rolled here would drift from what the database does on
+     settlement. */
+  const options = [
+    ...(monthlyTerm ? [{ ...monthlyTerm, saving: 0 }] : []),
+    ...terms.map((t) => ({ ...t, saving: Math.max(0, monthly * t.periodMonths - Number(t.price)) })),
+  ];
 
-        {monthly > 0 && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {[1, 3, 6, 12].map((m) => (
-              <button key={m} className="cp-mini" type="button" onClick={() => setAmount(String(monthly * m))}>
-                {m} {m === 1 ? "month" : "months"} · {naira(monthly * m)}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {err && (
-          <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "flex-start", lineHeight: 1.5 }}>
-            <AlertCircle size={14} style={{ marginTop: 1, flex: "0 0 auto" }} /> <span>{err}</span>
-          </div>
-        )}
-
-        <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
-          You'll finish on Paystack, where you can pay by card, transfer or USSD. Your wallet is
-          credited as soon as Paystack confirms it — you don't need to come back here or send a receipt.
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-/* "I've paid" — the amount they sent and, ideally, the receipt.
-
-   The receipt is optional but pushed, because a bank narration alone
-   often isn't enough to tell two transfers apart, and the alternative
-   is an email thread. */
-function FundModal({ term, monthly, outstanding, onClose, onSend }) {
-  const suggested = term ? Number(term.price) : (outstanding || monthly || 0);
-  const [amount, setAmount] = useState(suggested ? String(suggested) : "");
+  const [choice, setChoice] = useState(options[0]?.key || "");
+  const [custom, setCustom] = useState("");
+  const [step, setStep] = useState("choose");     // choose | details
   const [note, setNote] = useState("");
   const [receipt, setReceipt] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const submit = async () => {
-    const n = Number(String(amount).replace(/[^0-9.]/g, ""));
-    if (!n || n <= 0) { setErr("How much did you transfer?"); return; }
+  const picked = options.find((o) => o.key === choice) || null;
+  const customAmount = Number(String(custom).replace(/[^0-9.]/g, ""));
+  const amount = choice === "custom" ? customAmount : Number(picked?.price || 0);
+  // A term only applies when they picked one. Monthly is the default
+  // state rather than something you buy, and a custom amount is a
+  // top-up — neither should move the paid-through date.
+  const term = choice === "custom" || choice === "monthly" ? null : choice;
+
+  const goCard = async () => {
+    if (!(amount > 0)) { setErr("How much do you want to pay?"); return; }
+    if (amount < 100) { setErr("The smallest card payment is ₦100."); return; }
     setErr(""); setBusy(true);
-    try { await onSend({ amount: n, note: note.trim(), receipt }); }
-    catch (e) { setErr(e.message || "Couldn't send that."); setBusy(false); }
+    try {
+      const { url } = await startCardPayment(amount, term);
+      window.location.replace(url);
+    } catch (e) { setErr(e.message || "Couldn't start that payment."); setBusy(false); }
   };
 
-  return (
-    <Modal title={term ? `Pay ${term.name.toLowerCase()}` : "Confirm your transfer"}
-      onClose={onClose} onSubmit={submit} submitDisabled={busy}
-      submitLabel={busy ? "Sending…" : "Send to Renla"}>
+  const sendTransfer = async () => {
+    if (!(amount > 0)) { setErr("How much did you transfer?"); return; }
+    setErr(""); setBusy(true);
+    try {
+      await raiseBillingRequest({
+        kind: term ? "term_change" : "topup",
+        term, amount, note: note.trim(), receipt,
+      });
+      toast("Thanks — we'll check the bank and update your balance.");
+      await onSent();
+    } catch (e) { setErr(e.message || "Couldn't send that."); setBusy(false); }
+  };
 
-      {term && (
-        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
-          {term.name} billing for your company is <b>{naira(term.price)}</b>. {term.blurb}
+  /* ---------- step one: how much ---------- */
+  if (step === "choose") {
+    return (
+      <Modal
+        title={how === "card" ? "Pay by card" : "Pay by bank transfer"}
+        onClose={onClose}
+        onSubmit={() => {
+          if (!(amount > 0)) { setErr("Pick how long you want to cover."); return; }
+          setErr("");
+          if (how === "card") goCard(); else setStep("details");
+        }}
+        submitDisabled={busy}
+        submitLabel={busy ? "Opening Paystack…" : how === "card" ? "Continue to Paystack" : "Show me where to send it"}>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {outstanding > 0 && (
+            <div style={{ fontSize: 12.5, color: "var(--danger)", lineHeight: 1.55, marginBottom: 2 }}>
+              You're {naira(outstanding)} behind. Anything you pay clears that first.
+            </div>
+          )}
+
+          {options.map((o) => {
+            const on = choice === o.key;
+            return (
+              <button key={o.key} type="button" onClick={() => { setChoice(o.key); setErr(""); }}
+                style={{
+                  textAlign: "left", cursor: "pointer", width: "100%",
+                  border: `1px solid ${on ? "var(--brand)" : "var(--line)"}`,
+                  background: on ? "var(--brand-soft)" : "var(--card)",
+                  borderRadius: 12, padding: "12px 14px", font: "inherit", color: "inherit",
+                }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{o.name}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 15 }}>
+                    {naira(o.price)}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3, lineHeight: 1.5 }}>
+                  {o.blurb}{o.saving > 0 ? ` Saves ${naira(o.saving)} against paying monthly.` : ""}
+                </div>
+              </button>
+            );
+          })}
+
+          <button type="button" onClick={() => { setChoice("custom"); setErr(""); }}
+            style={{
+              textAlign: "left", cursor: "pointer", width: "100%",
+              border: `1px solid ${choice === "custom" ? "var(--brand)" : "var(--line)"}`,
+              background: choice === "custom" ? "var(--brand-soft)" : "var(--card)",
+              borderRadius: 12, padding: "12px 14px", font: "inherit", color: "inherit",
+            }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>Another amount</span>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
+              Tops up your wallet. No discount, and it doesn't change your plan.
+            </div>
+          </button>
+
+          {choice === "custom" && (
+            <Field label="Amount (₦)">
+              <input className="cp-input" autoFocus inputMode="decimal" value={custom}
+                onChange={(e) => setCustom(e.target.value)} placeholder="5000" />
+            </Field>
+          )}
+
+          {err && (
+            <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "flex-start", lineHeight: 1.5 }}>
+              <AlertCircle size={14} style={{ marginTop: 1, flex: "0 0 auto" }} /> <span>{err}</span>
+            </div>
+          )}
+        </div>
+      </Modal>
+    );
+  }
+
+  /* ---------- step two: where to send it ---------- */
+  return (
+    <Modal title={`Transfer ${naira(amount)}`} onClose={onClose} onSubmit={sendTransfer}
+      submitDisabled={busy} submitLabel={busy ? "Sending…" : "I've sent it"}>
+
+      {!b.bank?.account_number ? (
+        <Empty text="Renla hasn't published bank details yet. Get in touch at hello@renla.app." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.6 }}>
+            Send <b style={{ color: "var(--ink)" }}>{naira(amount)}</b> to the account below and put the
+            reference in the narration. That reference is how your transfer gets matched to this
+            company, so it matters more than the amount does.
+          </div>
+
+          <div>
+            <CopyRow label="Bank" value={b.bank.bank_name} toast={toast} />
+            <CopyRow label="Account name" value={b.bank.account_name} toast={toast} />
+            <CopyRow label="Account number" value={b.bank.account_number} toast={toast} />
+            <CopyRow label="Amount" value={String(amount)} toast={toast} />
+            <CopyRow label="Reference" value={ref} toast={toast} />
+          </div>
+
+          {b.bank.payment_note && (
+            <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55 }}>{b.bank.payment_note}</div>
+          )}
+
+          <Field label="Receipt" hint="A screenshot or the bank's PDF. Optional, but it's what lets us match your transfer quickly.">
+            <input className="cp-input" type="file" accept="image/*,.pdf"
+              onChange={(e) => { setReceipt(e.target.files?.[0] || null); setErr(""); }} />
+          </Field>
+          {receipt && (
+            <div style={{ fontSize: 12.5, color: "var(--brand)", fontWeight: 600, marginTop: -6 }}>
+              {receipt.name} attached
+            </div>
+          )}
+
+          <Field label="Anything we should know?" hint="Optional">
+            <input className="cp-input" value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. transferred from the company account on Monday" />
+          </Field>
+
+          {err && (
+            <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "flex-start", lineHeight: 1.5 }}>
+              <AlertCircle size={14} style={{ marginTop: 1, flex: "0 0 auto" }} /> <span>{err}</span>
+            </div>
+          )}
+
+          <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
+            Tell us once you've sent it. Nothing changes on your balance until we've matched it against
+            the bank, usually within a working day. Paying by card instead credits you in seconds.
+          </div>
         </div>
       )}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Field label="Amount transferred (₦)" hint={term ? "Change it if you sent a different amount" : undefined}>
-          <input className="cp-input" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} />
-        </Field>
-
-        <Field label="Receipt" hint="A screenshot or the bank's PDF. Optional, but it's what lets us match your transfer quickly.">
-          <input className="cp-input" type="file" accept="image/*,.pdf"
-            onChange={(e) => { setReceipt(e.target.files?.[0] || null); setErr(""); }} />
-        </Field>
-        {receipt && (
-          <div style={{ fontSize: 12.5, color: "var(--brand)", fontWeight: 600, marginTop: -6 }}>
-            {receipt.name} attached
-          </div>
-        )}
-
-        <Field label="Anything we should know?" hint="Optional">
-          <input className="cp-input" value={note} onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. transferred from the company account on Monday" />
-        </Field>
-
-        {err && (
-          <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "flex-start", lineHeight: 1.5 }}>
-            <AlertCircle size={14} style={{ marginTop: 1, flex: "0 0 auto" }} /> <span>{err}</span>
-          </div>
-        )}
-
-        <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
-          This doesn't take any money — it tells Renla to look for your transfer. Nothing changes on your
-          balance until it's confirmed against the bank.
-        </div>
-      </div>
     </Modal>
   );
 }

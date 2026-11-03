@@ -388,7 +388,7 @@ export async function raiseBillingRequest({ kind, plan, term, amount, note, rece
    moves only when Paystack's signed webhook says the money arrived, so a
    customer who closes the tab mid-payment still gets credited and one who
    fakes a success callback gets nothing. */
-export async function startCardPayment(amount) {
+export async function startCardPayment(amount, term) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Please sign in again.");
 
@@ -399,7 +399,7 @@ export async function startCardPayment(amount) {
       apikey: key,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ amount }),
+    body: JSON.stringify({ amount, term: term || null }),
   });
 
   const body = await res.json().catch(() => null);

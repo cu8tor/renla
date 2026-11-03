@@ -55,7 +55,7 @@ async function handle(req: Request): Promise<Response> {
   const key = (Deno.env.get("PAYSTACK_SECRET_KEY") ?? "").trim();
   if (!key) return json({ error: "Card payment isn't set up yet." }, 503);
 
-  let body: { amount?: number };
+  let body: { amount?: number; term?: string | null };
   try { body = await req.json(); } catch { return json({ error: "Bad request body." }, 400); }
 
   const amount = Number(body.amount);
@@ -70,7 +70,7 @@ async function handle(req: Request): Promise<Response> {
   // Mints the reference against the caller's own company and bounds the
   // amount. If they aren't HR of a company, this is where it stops.
   const { data: intent, error: intentErr } = await supabase
-    .rpc("start_card_payment", { p_amount: amount });
+    .rpc("start_card_payment", { p_amount: amount, p_term: body.term ?? null });
 
   if (intentErr) return json({ error: intentErr.message }, 400);
   if (!intent?.reference) return json({ error: "Couldn't start that payment." }, 400);
