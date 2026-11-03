@@ -174,16 +174,19 @@ export default function BillingPage({ toast }) {
           )}
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Btn icon={CreditCard} onClick={() => setPaying("card")}>Pay by card</Btn>
-            <Btn icon={Landmark} variant="ghost" disabled={Boolean(openReq)} onClick={() => setPaying("transfer")}>
+            {/* Hidden when Renla has card payments switched off. The RPC
+                refuses too, so this is courtesy rather than the control. */}
+            {b.cardPayments && <Btn icon={CreditCard} onClick={() => setPaying("card")}>Pay by card</Btn>}
+            <Btn icon={Landmark} variant={b.cardPayments ? "ghost" : "primary"}
+              disabled={Boolean(openReq)} onClick={() => setPaying("transfer")}>
               Pay by bank transfer
             </Btn>
           </div>
 
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12, lineHeight: 1.6 }}>
-            Card goes through Paystack — you can pay by card, transfer or USSD there, and your wallet is
-            credited in seconds. A transfer straight to our account is checked by hand, so it lands on
-            your balance by the next working day.
+            {b.cardPayments
+              ? "Card goes through Paystack — you can pay by card, transfer or USSD there, and your wallet is credited in seconds. A transfer straight to our account is checked by hand, so it lands on your balance by the next working day."
+              : "Transfers are checked by hand, so a payment lands on your balance by the next working day."}
           </div>
         </Section>
       </Card>

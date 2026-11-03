@@ -459,6 +459,46 @@ export async function adminApplyTermPayment(companyId, term, paid, reference) {
   return data;
 }
 
+export async function adminSetCardPayments(enabled) {
+  const { error } = await supabase.rpc("admin_set_card_payments", { p_enabled: Boolean(enabled) });
+  if (error) throw new Error(friendly(error.message));
+}
+
+/* What a delete would destroy, counted. Read-only — the confirmation
+   says the damage in numbers rather than in the word "everything". */
+export async function adminCompanyFootprint(companyId) {
+  const { data, error } = await supabase.rpc("admin_company_footprint", { p_company: companyId });
+  if (error) throw new Error(friendly(error.message));
+  return data || { total: 0, tables: {} };
+}
+
+export async function adminDeleteCompany(companyId, confirmName, evenIfInCredit = false) {
+  const { data, error } = await supabase.rpc("admin_delete_company", {
+    p_company: companyId, p_confirm_name: confirmName, p_even_if_in_credit: evenIfInCredit,
+  });
+  if (error) throw new Error(friendly(error.message));
+  return data;
+}
+
+/* Uploaded files live in Storage, which Postgres can't reach, so they go
+   first — a failed delete here leaves orphaned blobs, which is untidy;
+   leaving them after the rows are gone makes them unfindable. */
+export async function adminPurgeCompanyFiles(companyId) {
+  const buckets = ["avatars", "selfies", "documents", "payment-receipts"];
+  let removed = 0;
+  for (const bucket of buckets) {
+    try {
+      const { data: files } = await supabase.storage.from(bucket).list(String(companyId), { limit: 1000 });
+      const paths = (files || []).filter((f) => f.name).map((f) => `${companyId}/${f.name}`);
+      if (paths.length) {
+        const { error } = await supabase.storage.from(bucket).remove(paths);
+        if (!error) removed += paths.length;
+      }
+    } catch { /* a bucket that doesn't exist, or no permission — keep going */ }
+  }
+  return removed;
+}
+
 export async function adminSetBankDetails({ bank, accountName, accountNumber, note }) {
   const { error } = await supabase.rpc("admin_set_bank_details", {
     p_bank: bank || "", p_account_name: accountName || "",

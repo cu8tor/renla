@@ -80,6 +80,18 @@ function AuthShell({ theme, dark, setDark, children, badge, title, blurb }) {
 function AuthScreen({ theme, dark, setDark, linkError }) {
   const [mode, setMode] = useState("in");
   const [f, setF] = useState({ email: "", password: "" });
+  /* Two cheap signup defences that cost a real person nothing.
+
+     A field no human can see, because a bot filling every input is the
+     commonest kind there is; and the time the form was on screen, because
+     a script submits in milliseconds and a person cannot type an email
+     and a password in under two seconds.
+
+     Neither is proof against anyone determined — that needs a captcha,
+     which needs a Cloudflare key and a Supabase Auth setting. These are
+     the layers that work today with no third party involved. */
+  const [trap, setTrap] = useState("");
+  const [openedAt] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   // Pre-fills from an expired/already-used password-reset link (see App.jsx)
   // so it's not a completely silent dead end — previously this failed
@@ -94,6 +106,14 @@ function AuthScreen({ theme, dark, setDark, linkError }) {
     try {
       if (mode === "in") await sbSignIn(f.email, f.password);
       else {
+        // Deliberately vague to both: anything that explains which check
+        // failed is a tuning guide for whoever is probing.
+        if (trap) { setErr("Something went wrong. Please try again."); setBusy(false); return; }
+        if (Date.now() - openedAt < 2000) {
+          setErr("Please take a moment and try that again.");
+          setBusy(false);
+          return;
+        }
         const res = await sbSignUp(f.email, f.password);
         if (!res.session) { setSent(true); setBusy(false); return; }
       }
@@ -153,6 +173,18 @@ function AuthScreen({ theme, dark, setDark, linkError }) {
       title={mode === "in" ? "Welcome back." : "Let's get you set up."}
       blurb={mode === "in" ? "Use the email and password your HR team gave you." : "Create your login first — next you'll choose whether to set up a new company or join one you've already been invited to (with a staff code from your HR team)."}>
       <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Off-screen rather than display:none — some bots skip hidden
+            inputs but fill anything the DOM says is a text field. Named
+            like something worth filling in, labelled for the handful of
+            screen readers that will reach it, and never submitted. */}
+        {mode === "up" && (
+          <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", width: 1, height: 1, overflow: "hidden" }}>
+            <label htmlFor="company-website">Leave this field empty</label>
+            <input id="company-website" name="company_website" type="text" tabIndex={-1}
+              autoComplete="off" value={trap} onChange={(e) => setTrap(e.target.value)} />
+          </div>
+        )}
+
         <Field label="Email">
           <input className="cp-input" autoFocus type="email" autoComplete="email"
             value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })}

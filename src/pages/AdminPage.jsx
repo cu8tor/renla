@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle, Check, X, FileText } from "lucide-react";
+import { Building2, Users, Wallet, RefreshCw, Plus, ChevronLeft, Timer, AlertCircle, Check, X, FileText, CreditCard, Trash2 } from "lucide-react";
 import { adminCompanies, adminCompanyDetail, adminRecordPayment, adminAdjust, adminSetPlan, adminPostCharges, listPlans,
   adminOpenRequests, adminResolveRequest, adminApproveRequest, adminSetBankDetails, platformBankDetails, receiptUrl,
-  adminSetIndustry } from "../lib/supabase.js";
+  adminSetIndustry, adminSetCardPayments, adminCompanyFootprint, adminDeleteCompany,
+  adminPurgeCompanyFiles } from "../lib/supabase.js";
 import { naira } from "../lib/format.js";
 import { billingStatus } from "../features/billing/status.js";
 import { INDUSTRIES, industryLabel } from "../lib/industries.js";
@@ -57,6 +58,7 @@ export default function AdminPage() {
   const [payFor, setPayFor] = useState(null);     // company row we're recording against
   const [requests, setRequests] = useState([]);
   const [approving, setApproving] = useState(null);  // request being approved
+  const [deleting, setDeleting] = useState(null);    // company being deleted
   const [bank, setBank] = useState(null);
 
   const load = useCallback(async () => {
@@ -229,8 +231,24 @@ export default function AdminPage() {
           </>
         )}
 
+            <Card style={{ marginTop: 18, borderColor: "var(--danger)" }}>
+              <Section title="Delete this company">
+                <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.6, marginBottom: 14 }}>
+                  Removes {co.name} and everything belonging to it — staff, attendance, leave, payroll,
+                  documents and the whole billing history. It cannot be undone from here. Last night's
+                  backup is the only way back, so check one exists first.
+                </div>
+                <Btn icon={Trash2} variant="ghost" onClick={() => setDeleting(co)}>Delete {co.name}</Btn>
+              </Section>
+            </Card>
+
         {payFor && <PaymentModal co={payFor} onClose={() => setPayFor(null)}
           onDone={async () => { setPayFor(null); await load(); await openDetail(co); }}
+          onError={setErr} />}
+
+        {deleting && <DeleteCompanyModal co={deleting}
+          onClose={() => setDeleting(null)}
+          onDone={async () => { setDeleting(null); setOpenCo(null); setDetail(null); await load(); }}
           onError={setErr} />}
       </div>
     );
@@ -351,6 +369,7 @@ export default function AdminPage() {
         </Card>
       )}
 
+      {bank && <CardSwitch bank={bank} onSaved={load} onError={setErr} />}
       {bank && <BankCard bank={bank} onSaved={load} onError={setErr} />}
 
       <Card style={{ marginTop: 18 }}>
@@ -462,6 +481,42 @@ function ApproveModal({ req, onClose, onDone, onError }) {
 /* Where customers are told to send money. Kept in the database rather
    than the repo — an account number has no business in git history, and
    this way changing bank doesn't need a deploy. */
+/* Whether customers are offered Pay by card at all.
+
+   Worth a switch rather than a deploy: the key can still be the test one,
+   Paystack can be having a day, or the account can be unverified. A pay
+   button that leads nowhere is worse than no button. */
+function CardSwitch({ bank, onSaved, onError }) {
+  const on = Boolean(bank.card_payments_enabled);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Card style={{ marginTop: 18 }}>
+      <Section title="Card payments">
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 260, fontSize: 12.5, color: "var(--muted)", lineHeight: 1.6 }}>
+            {on
+              ? "Customers can pay by card, transfer or USSD through Paystack, and their wallet is credited the moment Paystack confirms it."
+              : "Customers are only offered bank transfer. Turn this on once your Paystack account is live and the secret key in Supabase starts sk_live_."}
+            <div style={{ marginTop: 6 }}>
+              Turning it off closes the route, not just the button — a payment can't be started while it's off.
+            </div>
+          </div>
+          <Btn icon={busy ? Timer : CreditCard} variant={on ? "ghost" : "primary"} disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try { await adminSetCardPayments(!on); await onSaved(); }
+              catch (e) { onError?.(e.message); }
+              setBusy(false);
+            }}>
+            {busy ? "Saving…" : on ? "Turn card payments off" : "Turn card payments on"}
+          </Btn>
+        </div>
+      </Section>
+    </Card>
+  );
+}
+
 function BankCard({ bank, onSaved, onError }) {
   const [f, setF] = useState({
     bank: bank.bank_name || "", accountName: bank.account_name || "",
@@ -554,6 +609,123 @@ function PaymentModal({ co, onClose, onDone, onError }) {
         <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
           This goes onto their statement and can't be edited afterwards — a mistake is fixed with a
           correction in the other direction, so the history stays honest.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* =====================================================================
+   Deleting a company.
+
+   The only irreversible thing in this whole back office, so it is built
+   to be impossible to do by accident rather than merely discouraged:
+   the damage is counted and shown before the decision, the exact name
+   has to be typed, and money still sitting in the wallet needs a second,
+   separate acknowledgement — somebody paid that, and nobody should lose
+   it on a mis-click.
+   ===================================================================== */
+function DeleteCompanyModal({ co, onClose, onDone, onError }) {
+  const [foot, setFoot] = useState(null);
+  const [typed, setTyped] = useState("");
+  const [understood, setUnderstood] = useState(false);
+  const [creditOk, setCreditOk] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const f = await adminCompanyFootprint(co.id);
+        if (alive) setFoot(f);
+      } catch (e) { if (alive) setErr(e.message); }
+    })();
+    return () => { alive = false; };
+  }, [co.id]);
+
+  const inCredit = Number(co.balance) > 0;
+  const nameOk = typed.trim() === String(co.name || "").trim();
+  const ready = nameOk && understood && (!inCredit || creditOk) && !busy;
+
+  const go = async () => {
+    if (!ready) return;
+    setErr("");
+    try {
+      // Files first: Postgres can't reach Storage, and clearing them after
+      // the rows are gone would mean never finding them again.
+      setBusy("Removing uploaded files…");
+      await adminPurgeCompanyFiles(co.id);
+
+      setBusy("Deleting…");
+      await adminDeleteCompany(co.id, typed.trim(), inCredit && creditOk);
+      await onDone();
+    } catch (e) {
+      setErr(e.message); onError?.(e.message); setBusy("");
+    }
+  };
+
+  const rows = Object.entries(foot?.tables || {}).sort((a, b) => b[1] - a[1]);
+
+  return (
+    <Modal title={`Delete ${co.name}`} onClose={onClose} onSubmit={go}
+      submitDisabled={!ready}
+      submitLabel={busy || "Delete permanently"}>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+          This removes <b>{co.name}</b> and everything belonging to it. There is no undo — the only way
+          back is last night's backup.
+        </div>
+
+        {!foot ? <Empty text="Counting what would go…" /> : (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+              {foot.total} records would be destroyed
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {rows.map(([table, n]) => (
+                <Badge key={table} tone="muted">{table.replace(/_/g, " ")} · {n}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {inCredit && (
+          <div style={{ background: "var(--danger-soft)", border: "1px solid var(--danger)", borderRadius: 11, padding: "11px 13px" }}>
+            <div style={{ fontSize: 13, lineHeight: 1.6, fontWeight: 600, marginBottom: 8 }}>
+              {naira(co.balance)} is still in their wallet.
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.55, marginBottom: 10 }}>
+              Somebody paid that. Refund it before deleting unless you have already settled up with them.
+            </div>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, cursor: "pointer" }}>
+              <input type="checkbox" checked={creditOk} onChange={(e) => setCreditOk(e.target.checked)} style={{ marginTop: 2 }} />
+              <span>I've settled up with them, or the balance is written off.</span>
+            </label>
+          </div>
+        )}
+
+        <Field label={`Type "${co.name}" to confirm`}>
+          <input className="cp-input" autoFocus value={typed} autoComplete="off"
+            onChange={(e) => { setTyped(e.target.value); setErr(""); }}
+            placeholder={co.name} />
+        </Field>
+
+        <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, cursor: "pointer" }}>
+          <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} style={{ marginTop: 2 }} />
+          <span>I understand this cannot be undone.</span>
+        </label>
+
+        {err && (
+          <div style={{ fontSize: 13, color: "var(--danger)", display: "flex", gap: 7, alignItems: "flex-start", lineHeight: 1.5 }}>
+            <AlertCircle size={14} style={{ marginTop: 1, flex: "0 0 auto" }} /> <span>{err}</span>
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55 }}>
+          Their Supabase logins are <b>not</b> deleted — the people keep their accounts and land on the
+          "create or join a company" screen. Remove them yourself under Authentication if you want them gone.
         </div>
       </div>
     </Modal>
