@@ -152,3 +152,40 @@ export function coveredUntil({ balance, monthly, from = new Date() }) {
 function daysInMonth(year, monthIndex) {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
+
+/* Where a company sits against the seats its plan includes.
+
+   Renla's plans bundle seats — Growth is ₦5,000 for ten — so hiring
+   costs nothing until the eleventh person, and then it costs per head.
+   That is a good deal and a bad surprise: the charge goes up quietly, in
+   a monthly posting nobody is watching, and the prepaid credit runs down
+   sooner than the date they remember being told.
+
+   So this exists to be said out loud, before the hire rather than after.
+   Returns what it costs rather than whether to worry: the screens decide
+   how loudly to say it. */
+export function seatPosition({ seats, includedSeats, perSeatBeyond, seatCap, adding = 0 }) {
+  const used = Math.max(0, Math.round(Number(seats) || 0) + Math.round(Number(adding) || 0));
+  const included = Math.max(0, Math.round(Number(includedSeats) || 0));
+  const rate = Math.max(0, Number(perSeatBeyond) || 0);
+  const cap = seatCap == null || seatCap === "" ? null : Math.round(Number(seatCap));
+
+  const extra = Math.max(0, used - included);
+  const extraCost = Math.round(rate * extra * 100) / 100;
+
+  return {
+    used,
+    included,
+    rate,
+    cap,
+    extra,
+    extraCost,
+    remaining: Math.max(0, included - used),
+    /* Over the included seats and actually being charged for it. A plan
+       whose extra seats are free — or that caps at its included count —
+       is over the line without it costing anything. */
+    charging: extra > 0 && rate > 0,
+    /* Hiring one more is blocked, not merely billable. */
+    atCap: cap != null && used >= cap,
+  };
+}

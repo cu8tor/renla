@@ -6,6 +6,7 @@ import { naira, grossOf, fmtShort, copyText } from "../lib/format.js";
 import { emptyEmployee } from "../lib/payrollHelpers.js";
 import { onboardingChecklist } from "../lib/onboarding.js";
 import { leaveBalances } from "../features/leave/entitlements.js";
+import { seatPosition } from "../features/billing/status.js";
 import { sendInvite } from "../lib/supabase.js";
 import { Avatar, EmpAvatar, Badge, Card, Btn, Field, KV, PageHead, Empty, Modal } from "../components/ui.jsx";
 import { WeekScheduleEditor } from "../components/WeekScheduleEditor.jsx";
@@ -316,6 +317,7 @@ function InviteEmployeeModal({ db, toast, onSave, onClose }) {
         }
         setSending(false);
       }}>
+      <SeatNote db={db} />
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 16, lineHeight: 1.55 }}>
         Just the basics — your new hire fills in the rest themselves once they're in. Add their email and we'll send the invite for you.
       </div>
@@ -377,6 +379,7 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
         shiftId: f.scheduleMode === "pattern" ? (f.shiftId || "") : "",
       })}
       submitLabel={isNew ? "Add employee" : "Save changes"}>
+      {isNew && <SeatNote db={db} />}
       <FormGroup title="Personal">
         <div className="cp-form-grid">
           <Field label="Full name"><input className="cp-input" value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Bola Ade" /></Field>
@@ -548,6 +551,69 @@ function EmployeeForm({ emp, isNew, db, onSave, onCancel }) {
     </Modal>
   );
 }
+/* What this hire does to the bill.
+
+   Renla's plans bundle seats — Growth is ₦5,000 for ten — so hiring is
+   free until the eleventh person and then costs per head. Good value and
+   a bad surprise: the charge rises inside a monthly posting nobody
+   watches, and prepaid credit runs out sooner than the date they
+   remember. Better said here, before the hire.
+
+   Silent while there is nothing to say. A warning that appears on every
+   hire is a warning nobody reads by the time it matters. */
+function SeatNote({ db }) {
+  const plan = db.company?.planDetail;
+  // The price list is loaded best-effort; without it, say nothing rather
+  // than guess at what a seat costs.
+  if (!plan) return null;
+
+  const active = (db.employees || []).filter((e) => (e.status || "Active") === "Active").length;
+  const s = seatPosition({
+    seats: active, adding: 1,
+    includedSeats: plan.included_seats,
+    perSeatBeyond: plan.per_seat_beyond,
+    seatCap: plan.seat_cap,
+  });
+
+  // Over the cap is a different thing from over the bundle: one is
+  // blocked, the other is billable.
+  const blocked = s.cap != null && s.used > s.cap;
+
+  let tone = null, text = null;
+  if (blocked) {
+    tone = "danger";
+    text = `The ${plan.name} plan covers ${s.cap} ${s.cap === 1 ? "person" : "people"} and you already have ${active}. `
+         + `Adding another needs a bigger plan — talk to Renla and we'll move you up.`;
+  } else if (s.charging) {
+    tone = "warn";
+    text = `This is outside your ${s.included} included seats, so it adds ${naira(s.rate)} a month`
+         // Only worth a running total once there is more than one — at the
+         // first extra seat it would be the same figure twice.
+         + (s.extra > 1 ? `, taking you to ${naira(s.extraCost)} for ${s.extra} extra seats` : "")
+         + `. Your wallet runs down faster from the next monthly charge.`;
+  } else if (s.remaining > 0 && s.remaining <= 2 && s.rate > 0) {
+    tone = "muted";
+    text = `${s.remaining} of your ${s.included} included seats left after this one. `
+         + `Each person beyond that adds ${naira(s.rate)} a month.`;
+  }
+
+  if (!text) return null;
+
+  const colour = tone === "danger" ? "var(--danger)" : tone === "warn" ? "var(--warn)" : "var(--muted)";
+  const soft = tone === "danger" ? "var(--danger-soft)" : tone === "warn" ? "var(--warn-soft)" : "var(--card2)";
+
+  return (
+    <div style={{
+      display: "flex", gap: 10, alignItems: "flex-start",
+      background: soft, border: `1px solid ${colour}`, borderRadius: 11,
+      padding: "11px 13px", marginBottom: 16,
+    }}>
+      <Wallet size={15} style={{ color: colour, marginTop: 2, flex: "0 0 auto" }} />
+      <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>{text}</div>
+    </div>
+  );
+}
+
 function FormGroup({ title, note, children }) {
   return (
     <div style={{ marginBottom: 22 }}>

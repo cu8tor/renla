@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { billingStatus, withRunningBalance, prettyWhat, coveredUntil } from "./status.js";
+import { billingStatus, withRunningBalance, prettyWhat, coveredUntil, seatPosition } from "./status.js";
 
 describe("billingStatus", () => {
   it("says there is nothing to pay on a plan with no charge", () => {
@@ -198,5 +198,65 @@ describe("coveredUntil", () => {
   it("never returns a date in the past", () => {
     const d = coveredUntil({ balance: 1, monthly: 5000, from });
     expect(d.getTime()).toBeGreaterThanOrEqual(from.getTime() - 86400000);
+  });
+});
+
+describe("seatPosition", () => {
+  // Growth: ₦5,000 covers ten, then ₦800 a head, no cap.
+  const growth = { includedSeats: 10, perSeatBeyond: 800, seatCap: null };
+
+  it("costs nothing inside the included seats", () => {
+    const s = seatPosition({ seats: 3, ...growth });
+    expect(s.extra).toBe(0);
+    expect(s.extraCost).toBe(0);
+    expect(s.charging).toBe(false);
+    expect(s.remaining).toBe(7);
+  });
+
+  /* The case Ade raised: three staff, add two, still free. */
+  it("confirms a hire inside the bundle is free", () => {
+    const s = seatPosition({ seats: 3, adding: 2, ...growth });
+    expect(s.used).toBe(5);
+    expect(s.charging).toBe(false);
+    expect(s.extraCost).toBe(0);
+  });
+
+  it("starts charging at the first seat past the bundle", () => {
+    expect(seatPosition({ seats: 10, ...growth }).charging).toBe(false);
+    const eleven = seatPosition({ seats: 11, ...growth });
+    expect(eleven.charging).toBe(true);
+    expect(eleven.extra).toBe(1);
+    expect(eleven.extraCost).toBe(800);
+  });
+
+  it("prices several extra seats", () => {
+    expect(seatPosition({ seats: 15, ...growth }).extraCost).toBe(4000);
+  });
+
+  it("can price a hire that has not happened yet", () => {
+    const s = seatPosition({ seats: 10, adding: 1, ...growth });
+    expect(s.charging).toBe(true);
+    expect(s.extraCost).toBe(800);
+  });
+
+  /* Small Business bundles ten seats and sells no more. Being at the
+     limit is not the same as being charged for going over it. */
+  it("separates a capped plan from a billable one", () => {
+    const small = seatPosition({ seats: 10, includedSeats: 10, perSeatBeyond: 0, seatCap: 10 });
+    expect(small.atCap).toBe(true);
+    expect(small.charging).toBe(false);
+  });
+
+  it("does not call a free extra seat a charge", () => {
+    const s = seatPosition({ seats: 12, includedSeats: 10, perSeatBeyond: 0, seatCap: null });
+    expect(s.extra).toBe(2);
+    expect(s.charging).toBe(false);
+    expect(s.extraCost).toBe(0);
+  });
+
+  it("copes with nulls and strings from the database", () => {
+    const s = seatPosition({ seats: "11", includedSeats: "10", perSeatBeyond: "800", seatCap: null });
+    expect(s.extraCost).toBe(800);
+    expect(seatPosition({}).extra).toBe(0);
   });
 });

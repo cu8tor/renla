@@ -520,7 +520,7 @@ export async function loadWorkspace(profile) {
   const cutoff = windowCutoffISO();
 
   const [company, settings, employees, pay, departments, branches, leave, permissions, checks, attendance,
-         shifts, sites, devices, loans, news, docs, holidays, payruns, profiles, employeeDocs] =
+         shifts, sites, devices, loans, news, docs, holidays, payruns, profiles, employeeDocs, plans] =
     await Promise.all([
       supabase.from("companies").select("*").eq("id", cid).single(),
       supabase.from("company_settings").select("*").eq("company_id", cid).single(),
@@ -542,6 +542,10 @@ export async function loadWorkspace(profile) {
       q("payruns", { col: "month", asc: false }),
       supabase.from("profiles").select("id, employee_id, full_name, role").eq("company_id", cid),
       q("employee_documents", { col: "uploaded_at", asc: false }),
+      // Four static rows. Fetched with everything else rather than after
+      // the company row, which would cost a round trip to learn a plan key
+      // we can just match client-side.
+      supabase.from("plans").select("key, name, monthly_base, included_seats, per_seat_beyond, seat_cap"),
     ]);
 
   // Previously only 5 of these 19 queries were checked for an error — a
@@ -562,6 +566,10 @@ export async function loadWorkspace(profile) {
       id: company.data.id, name: company.data.name,
       address: company.data.address || "", country: company.data.country || "Nigeria",
       industry: company.data.industry || "",
+      /* Carried so any screen can say what a hire costs. Null when the
+         plans fetch failed — every reader checks, because losing the
+         price list must not stop someone adding an employee. */
+      planDetail: (plans.data || []).find((pl) => pl.key === company.data.plan) || null,
       contactPhone: company.data.contact_phone || "",
       contactEmail: company.data.contact_email || "",
     },
